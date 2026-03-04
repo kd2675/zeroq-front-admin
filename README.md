@@ -1,6 +1,10 @@
 # ZeroQ Admin Web
 
-ZeroQ 관리자용 Next.js 대시보드입니다. 공간/사용자/리뷰/운영 데이터를 관리하기 위한 UI를 제공합니다.
+ZeroQ 매장 대상(중간관리자) Next.js 대시보드입니다. 매장 데이터/리뷰/운영 상태를 관리하기 위한 UI를 제공합니다.
+
+## 대상 역할
+- `MANAGER` (store manager)
+- `ADMIN` (platform admin, 상위 운영 권한)
 
 ## 연결되는 백엔드
 - API Gateway: `http://localhost:8080` (cloud-back-server)
