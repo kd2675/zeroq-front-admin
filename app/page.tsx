@@ -4,37 +4,34 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   clearAccessToken,
-  getAccessToken,
-  getUserFromToken,
   isManagerOrAdmin,
   logout,
   normalizeRole,
 } from "@/app/lib/auth";
 import type { AuthUser } from "@/app/types/auth";
+import useAuthSession from "@/app/hooks/useAuthSession";
 
 export default function HomePage() {
   const router = useRouter();
-  const [loading, setLoading] = useState(true);
-  const [user, setUser] = useState<AuthUser | null>(null);
+  const { isHydrated, authStatus, user: sessionUser } = useAuthSession();
+  const [user, setUser] = useState<AuthUser | null>(sessionUser);
 
   useEffect(() => {
-    const token = getAccessToken();
-
-    if (!token) {
+    if (!isHydrated) {
+      return;
+    }
+    if (authStatus !== "in") {
       router.replace("/login");
       return;
     }
-
-    const decoded = getUserFromToken(token);
-    if (!decoded || !isManagerOrAdmin(decoded.role)) {
+    if (!isManagerOrAdmin(sessionUser?.role)) {
       clearAccessToken();
-      router.replace("/login");
+      router.replace("/login?denied=1");
       return;
     }
 
-    setUser(decoded);
-    setLoading(false);
-  }, [router]);
+    setUser(sessionUser);
+  }, [authStatus, isHydrated, router, sessionUser]);
 
   const handleLogout = async () => {
     try {
@@ -47,7 +44,7 @@ export default function HomePage() {
     }
   };
 
-  if (loading) {
+  if (!isHydrated || authStatus !== "in") {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-100">
         <p className="text-sm text-slate-600">세션 확인 중...</p>

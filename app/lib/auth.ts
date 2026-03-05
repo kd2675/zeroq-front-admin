@@ -6,8 +6,10 @@ import type {
 } from "@/app/types/auth";
 import type { ApiResult } from "@/app/lib/api";
 import { postJson } from "@/app/lib/api";
+import { emitAuthChanged, emitAuthExpired } from "@/app/lib/authEvents";
 
 const ACCESS_TOKEN_KEY = "accessToken";
+const TOKEN_EXPIRY_LEEWAY_SECONDS = 300;
 
 export function getAccessToken(): string | null {
   if (typeof window === "undefined") {
@@ -21,6 +23,7 @@ export function setAccessToken(token: string): void {
     return;
   }
   window.localStorage.setItem(ACCESS_TOKEN_KEY, token);
+  emitAuthChanged();
 }
 
 export function clearAccessToken(): void {
@@ -28,6 +31,7 @@ export function clearAccessToken(): void {
     return;
   }
   window.localStorage.removeItem(ACCESS_TOKEN_KEY);
+  emitAuthChanged();
 }
 
 export function normalizeRole(role?: string | null): string | null {
@@ -41,6 +45,12 @@ export function normalizeRole(role?: string | null): string | null {
 export function isManagerOrAdmin(role?: string | null): boolean {
   const normalized = normalizeRole(role);
   return normalized === "MANAGER" || normalized === "ADMIN";
+}
+
+export type AuthExpireReason = "expired" | "refresh_failed";
+
+export function notifyAuthExpired(reason: AuthExpireReason = "expired"): void {
+  emitAuthExpired(reason);
 }
 
 function decodeBase64Url(input: string): string | null {
@@ -90,6 +100,31 @@ export function getUserFromToken(token?: string | null): AuthUser | null {
   }
 }
 
+export function isTokenExpired(
+  exp?: number,
+  leewaySeconds = TOKEN_EXPIRY_LEEWAY_SECONDS,
+): boolean {
+  if (!exp) {
+    return false;
+  }
+  const now = Math.floor(Date.now() / 1000);
+  return exp <= now + leewaySeconds;
+}
+
+export function scheduleTokenExpiry(
+  onExpire: () => void,
+  exp?: number,
+  leewaySeconds = TOKEN_EXPIRY_LEEWAY_SECONDS,
+): () => void {
+  if (!exp) {
+    return () => undefined;
+  }
+  const now = Math.floor(Date.now() / 1000);
+  const delayMs = Math.max((exp - now - leewaySeconds) * 1000, 0);
+  const timeoutId = window.setTimeout(onExpire, delayMs);
+  return () => window.clearTimeout(timeoutId);
+}
+
 export async function login(
   payload: LoginRequest,
 ): Promise<ApiResult<LoginResponse>> {
@@ -117,4 +152,13 @@ export async function logout(): Promise<void> {
   const token = getAccessToken();
   const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
   await postJson<void>("/auth/logout", {}, headers);
+}
+
+export async function refreshAccessToken(): Promise<string | null> {
+  const result = await postJson<LoginResponse>("/auth/refresh", {});
+  if (!result.ok || !result.data?.accessToken) {
+    return null;
+  }
+  setAccessToken(result.data.accessToken);
+  return result.data.accessToken;
 }

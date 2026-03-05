@@ -7,10 +7,14 @@ import {
   clearAccessToken,
   getAccessToken,
   getUserFromToken,
+  isTokenExpired,
   isManagerOrAdmin,
   login,
+  refreshAccessToken,
   setAccessToken,
 } from "@/app/lib/auth";
+
+const PENDING_PATH_KEY = "zeroq_admin_pending_path";
 
 function LoginPageContent() {
   const router = useRouter();
@@ -19,6 +23,7 @@ function LoginPageContent() {
   const tokenFromQuery = searchParams.get("token");
   const signupDone = searchParams.get("signup") === "1";
   const denied = searchParams.get("denied") === "1";
+  const expired = searchParams.get("expired") === "1";
   const usernameFromQuery = useMemo(
     () => searchParams.get("username") ?? "",
     [searchParams],
@@ -30,33 +35,69 @@ function LoginPageContent() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (tokenFromQuery) {
-      setAccessToken(tokenFromQuery);
-      const user = getUserFromToken(tokenFromQuery);
+    let cancelled = false;
 
-      if (!isManagerOrAdmin(user?.role)) {
-        clearAccessToken();
-        router.replace("/login?denied=1");
+    const routeToPendingOrHome = () => {
+      const pendingPath = window.sessionStorage.getItem(PENDING_PATH_KEY);
+      if (pendingPath) {
+        window.sessionStorage.removeItem(PENDING_PATH_KEY);
+        router.replace(pendingPath);
+        return;
+      }
+      router.replace("/");
+    };
+
+    const bootstrap = async () => {
+      if (tokenFromQuery) {
+        setAccessToken(tokenFromQuery);
+        const user = getUserFromToken(tokenFromQuery);
+
+        if (!isManagerOrAdmin(user?.role)) {
+          clearAccessToken();
+          router.replace("/login?denied=1");
+          return;
+        }
+
+        routeToPendingOrHome();
         return;
       }
 
-      router.replace("/");
-      return;
-    }
+      const existingToken = getAccessToken();
+      if (!existingToken) {
+        return;
+      }
 
-    const existingToken = getAccessToken();
-    if (!existingToken) {
-      return;
-    }
+      const existingUser = getUserFromToken(existingToken);
+      if (existingUser?.exp && isTokenExpired(existingUser.exp)) {
+        const refreshedToken = await refreshAccessToken();
+        if (cancelled || !refreshedToken) {
+          clearAccessToken();
+          return;
+        }
+        const refreshedUser = getUserFromToken(refreshedToken);
+        if (!isManagerOrAdmin(refreshedUser?.role)) {
+          clearAccessToken();
+          router.replace("/login?denied=1");
+          return;
+        }
+        routeToPendingOrHome();
+        return;
+      }
 
-    const user = getUserFromToken(existingToken);
-    if (isManagerOrAdmin(user?.role)) {
-      router.replace("/");
-      return;
-    }
+      if (isManagerOrAdmin(existingUser?.role)) {
+        routeToPendingOrHome();
+        return;
+      }
 
-    clearAccessToken();
-    router.replace("/login?denied=1");
+      clearAccessToken();
+      router.replace("/login?denied=1");
+    };
+
+    void bootstrap();
+
+    return () => {
+      cancelled = true;
+    };
   }, [router, tokenFromQuery]);
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -139,6 +180,12 @@ function LoginPageContent() {
           {denied ? (
             <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
               zeroq-front-admin은 MANAGER/ADMIN 계정만 로그인할 수 있습니다.
+            </p>
+          ) : null}
+
+          {expired ? (
+            <p className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-700">
+              세션이 만료되었습니다. 다시 로그인해 주세요.
             </p>
           ) : null}
 
