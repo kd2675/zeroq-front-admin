@@ -20,7 +20,6 @@ function LoginPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const tokenFromQuery = searchParams.get("token");
   const signupDone = searchParams.get("signup") === "1";
   const denied = searchParams.get("denied") === "1";
   const expired = searchParams.get("expired") === "1";
@@ -48,22 +47,11 @@ function LoginPageContent() {
     };
 
     const bootstrap = async () => {
-      if (tokenFromQuery) {
-        setAccessToken(tokenFromQuery);
-        const user = getUserFromToken(tokenFromQuery);
-
-        if (!isManagerOrAdmin(user?.role)) {
-          clearAccessToken();
-          router.replace("/login?denied=1");
-          return;
-        }
-
-        routeToPendingOrHome();
-        return;
-      }
-
-      const existingToken = getAccessToken();
+      let existingToken = getAccessToken();
       if (!existingToken) {
+        existingToken = await refreshAccessToken();
+      }
+      if (cancelled || !existingToken) {
         return;
       }
 
@@ -98,7 +86,7 @@ function LoginPageContent() {
     return () => {
       cancelled = true;
     };
-  }, [router, tokenFromQuery]);
+  }, [router]);
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();

@@ -8,21 +8,21 @@ import type { ApiResult } from "@/app/lib/api";
 import { postJson } from "@/app/lib/api";
 import { emitAuthChanged, emitAuthExpired } from "@/app/lib/authEvents";
 
-const ACCESS_TOKEN_KEY = "accessToken";
 const TOKEN_EXPIRY_LEEWAY_SECONDS = 300;
+let accessTokenMemory: string | null = null;
 
 export function getAccessToken(): string | null {
   if (typeof window === "undefined") {
     return null;
   }
-  return window.localStorage.getItem(ACCESS_TOKEN_KEY);
+  return accessTokenMemory;
 }
 
 export function setAccessToken(token: string): void {
   if (typeof window === "undefined") {
     return;
   }
-  window.localStorage.setItem(ACCESS_TOKEN_KEY, token);
+  accessTokenMemory = token;
   emitAuthChanged();
 }
 
@@ -30,7 +30,7 @@ export function clearAccessToken(): void {
   if (typeof window === "undefined") {
     return;
   }
-  window.localStorage.removeItem(ACCESS_TOKEN_KEY);
+  accessTokenMemory = null;
   emitAuthChanged();
 }
 
