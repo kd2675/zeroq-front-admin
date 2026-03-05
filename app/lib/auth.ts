@@ -8,29 +8,21 @@ import type { ApiResult } from "@/app/lib/api";
 import { postJson } from "@/app/lib/api";
 import { emitAuthChanged, emitAuthExpired } from "@/app/lib/authEvents";
 
-const ACCESS_TOKEN_KEY = "accessToken";
 const TOKEN_EXPIRY_LEEWAY_SECONDS = 300;
+let accessTokenMemory: string | null = null;
+let refreshInFlight: Promise<string | null> | null = null;
 
 export function getAccessToken(): string | null {
-  if (typeof window === "undefined") {
-    return null;
-  }
-  return window.localStorage.getItem(ACCESS_TOKEN_KEY);
+  return accessTokenMemory;
 }
 
 export function setAccessToken(token: string): void {
-  if (typeof window === "undefined") {
-    return;
-  }
-  window.localStorage.setItem(ACCESS_TOKEN_KEY, token);
+  accessTokenMemory = token;
   emitAuthChanged();
 }
 
 export function clearAccessToken(): void {
-  if (typeof window === "undefined") {
-    return;
-  }
-  window.localStorage.removeItem(ACCESS_TOKEN_KEY);
+  accessTokenMemory = null;
   emitAuthChanged();
 }
 
@@ -154,11 +146,29 @@ export async function logout(): Promise<void> {
   await postJson<void>("/auth/logout", {}, headers);
 }
 
-export async function refreshAccessToken(): Promise<string | null> {
+async function requestRefreshAccessToken(): Promise<string | null> {
   const result = await postJson<LoginResponse>("/auth/refresh", {});
   if (!result.ok || !result.data?.accessToken) {
     return null;
   }
   setAccessToken(result.data.accessToken);
   return result.data.accessToken;
+}
+
+export async function refreshAccessToken(): Promise<string | null> {
+  if (refreshInFlight) {
+    return refreshInFlight;
+  }
+
+  refreshInFlight = requestRefreshAccessToken().finally(() => {
+    refreshInFlight = null;
+  });
+  return refreshInFlight;
+}
+
+export async function ensureAccessToken(): Promise<string | null> {
+  if (accessTokenMemory) {
+    return accessTokenMemory;
+  }
+  return refreshAccessToken();
 }

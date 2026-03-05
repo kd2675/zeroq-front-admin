@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import {
   clearAccessToken,
+  ensureAccessToken,
   getAccessToken,
   getUserFromToken,
   isTokenExpired,
@@ -40,11 +41,24 @@ export default function useAuthSession() {
 
   const [snapshot, setSnapshot] = useState(readSnapshot);
   const [isHydrated, setIsHydrated] = useState(false);
+  const [isRestoring, setIsRestoring] = useState(true);
 
   useEffect(() => {
+    let cancelled = false;
+
     const frameId = window.requestAnimationFrame(() => setIsHydrated(true));
+    void (async () => {
+      await ensureAccessToken();
+      if (cancelled) {
+        return;
+      }
+      setSnapshot(readSnapshot());
+      setIsRestoring(false);
+    })();
+
     const unsubscribe = onAuthChanged(() => setSnapshot(readSnapshot()));
     return () => {
+      cancelled = true;
       window.cancelAnimationFrame(frameId);
       unsubscribe();
     };
@@ -74,14 +88,19 @@ export default function useAuthSession() {
     }
 
     return scheduleTokenExpiry(() => {
-      clearAccessToken();
-      notifyAuthExpired("expired");
+      void (async () => {
+        const refreshed = await refreshAccessToken();
+        if (!refreshed) {
+          clearAccessToken();
+          notifyAuthExpired("refresh_failed");
+        }
+      })();
     }, userExp);
   }, [snapshot.user?.exp]);
 
   return {
     isHydrated,
-    authStatus: snapshot.status,
+    authStatus: isRestoring ? "unknown" : snapshot.status,
     user: snapshot.user,
   };
 }

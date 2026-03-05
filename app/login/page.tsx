@@ -5,12 +5,10 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   clearAccessToken,
-  getAccessToken,
+  ensureAccessToken,
   getUserFromToken,
-  isTokenExpired,
   isManagerOrAdmin,
   login,
-  refreshAccessToken,
   setAccessToken,
 } from "@/app/lib/auth";
 
@@ -62,29 +60,13 @@ function LoginPageContent() {
         return;
       }
 
-      const existingToken = getAccessToken();
-      if (!existingToken) {
+      const restoredToken = await ensureAccessToken();
+      if (cancelled || !restoredToken) {
         return;
       }
 
-      const existingUser = getUserFromToken(existingToken);
-      if (existingUser?.exp && isTokenExpired(existingUser.exp)) {
-        const refreshedToken = await refreshAccessToken();
-        if (cancelled || !refreshedToken) {
-          clearAccessToken();
-          return;
-        }
-        const refreshedUser = getUserFromToken(refreshedToken);
-        if (!isManagerOrAdmin(refreshedUser?.role)) {
-          clearAccessToken();
-          router.replace("/login?denied=1");
-          return;
-        }
-        routeToPendingOrHome();
-        return;
-      }
-
-      if (isManagerOrAdmin(existingUser?.role)) {
+      const restoredUser = getUserFromToken(restoredToken);
+      if (isManagerOrAdmin(restoredUser?.role)) {
         routeToPendingOrHome();
         return;
       }
