@@ -111,3 +111,26 @@ export function postJson<T>(
 ): Promise<ApiResult<T>> {
   return requestJson<T>(path, { method: "POST", body, headers });
 }
+
+export function getJson<T>(
+  path: string,
+  headers?: Record<string, string>,
+): Promise<ApiResult<T>> {
+  return requestJson<T>(path, { method: "GET", headers });
+}
+
+export function putJson<T>(
+  path: string,
+  body: unknown,
+  headers?: Record<string, string>,
+): Promise<ApiResult<T>> {
+  return requestJson<T>(path, { method: "PUT", body, headers });
+}
+
+export function patchJson<T>(
+  path: string,
+  body: unknown,
+  headers?: Record<string, string>,
+): Promise<ApiResult<T>> {
+  return requestJson<T>(path, { method: "PATCH", body, headers });
+}
