@@ -1,35 +1,53 @@
-# ZeroQ Admin Web
+# zeroq-front-admin
 
-ZeroQ 매장 대상(중간관리자) Next.js 대시보드입니다. 매장 데이터/리뷰/운영 상태를 관리하기 위한 UI를 제공합니다.
+ZeroQ 관리자용 Next.js 앱입니다. 현재 상태의 기능 중심은 대시보드라기보다 `MANAGER`/`ADMIN` 로그인과 세션 확인 셸입니다.
 
-## 대상 역할
-- `MANAGER` (store manager)
-- `ADMIN` (platform admin, 상위 운영 권한)
+## 현재 라우트
 
-## 연결되는 백엔드
-- API Gateway: `http://localhost:8080` (cloud-back-server)
+- `/`
+- `/login`
+- `/signup`
 
-## 포트
-- 개발 서버: `http://localhost:3000`
+`app/api/*`와 `app/gemini-test` 디렉토리는 존재하지만, 현재 기준 `route.ts`/`page.tsx`가 없어 구현 라우트로 보지 않는 편이 안전합니다.
 
-## 시작하기
+## 역할
+
+- `MANAGER`, `ADMIN` 로그인과 권한 진입점
+- 로그인 후 세션 정보 확인
+- 관리자 계정 회원가입 폼 제공
+
+## 실행
+
 ```bash
 npm install
 npm run dev
+npm run build
+npm run start
+npm run lint
 ```
 
-## 스크립트
-- `npm run dev` 개발 서버 실행 (3000)
-- `npm run build` 프로덕션 빌드
-- `npm run start` 프로덕션 서버 실행
-- `npm run lint` ESLint 실행
+## 포트
+
+- dev: `3002`
+- start: `3002`
 
 ## 환경 변수
-로컬 개발 시 `.env.local`을 생성합니다.
+
+`.env.local`
 
 ```bash
 NEXT_PUBLIC_API_URL=http://localhost:8080
+NEXT_PUBLIC_CLIENT_ID=zeroq-front-admin
 ```
 
+## 연동 포인트
+
+- 로그인: `/auth/login`
+- 회원가입: `/api/users`
+- refresh/logout: Gateway 경유 auth API 사용
+- API base 기본값: `http://localhost:8080`
+
 ## 참고
-- API 요청은 Gateway(8080)를 통해 백엔드로 라우팅됩니다.
+
+- 현재 UI는 운영 데이터 관리 화면보다 인증 셸에 가깝습니다.
+- 접근 권한이 `MANAGER`/`ADMIN`이 아니면 로그인 후에도 `/login?denied=1`로 되돌립니다.
