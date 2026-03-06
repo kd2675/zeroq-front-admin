@@ -83,7 +83,7 @@ export default function HomePage() {
             </div>
             <div>
               <dt className="text-xs uppercase tracking-wide text-slate-500">User ID</dt>
-              <dd className="mt-1 font-medium">{user?.userId ?? "-"}</dd>
+              <dd className="mt-1 font-medium">{user?.userKey ?? "-"}</dd>
             </div>
           </dl>
         </section>

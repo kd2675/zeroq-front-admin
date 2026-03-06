@@ -9,6 +9,8 @@ import { postJson } from "@/app/lib/api";
 import { emitAuthChanged, emitAuthExpired } from "@/app/lib/authEvents";
 
 const TOKEN_EXPIRY_LEEWAY_SECONDS = 300;
+const LOCAL_CLIENT_ID =
+  process.env.NEXT_PUBLIC_CLIENT_ID ?? "zeroq-front-admin";
 let accessTokenMemory: string | null = null;
 let refreshInFlight: Promise<string | null> | null = null;
 
@@ -73,17 +75,12 @@ export function getUserFromToken(token?: string | null): AuthUser | null {
 
   try {
     const parsed = JSON.parse(payload) as Record<string, unknown>;
-    const rawUserId = parsed.userId;
-    const userId =
-      typeof rawUserId === "number"
-        ? rawUserId
-        : typeof rawUserId === "string"
-          ? Number(rawUserId)
-          : undefined;
+    const rawUserKey = parsed.userKey;
+    const userKey = typeof rawUserKey === "string" ? rawUserKey : undefined;
 
     return {
       username: typeof parsed.sub === "string" ? parsed.sub : undefined,
-      userId: Number.isFinite(userId) ? userId : undefined,
+      userKey,
       role: typeof parsed.role === "string" ? parsed.role : undefined,
       exp: typeof parsed.exp === "number" ? parsed.exp : undefined,
     };
@@ -120,7 +117,9 @@ export function scheduleTokenExpiry(
 export async function login(
   payload: LoginRequest,
 ): Promise<ApiResult<LoginResponse>> {
-  return postJson<LoginResponse>("/auth/login", payload);
+  return postJson<LoginResponse>("/auth/login", payload, {
+    "X-Client-Id": LOCAL_CLIENT_ID,
+  });
 }
 
 export async function signUpManager(payload: {
@@ -128,7 +127,7 @@ export async function signUpManager(payload: {
   email: string;
   password: string;
   signupSecret: string;
-}): Promise<ApiResult<{ id?: number }>> {
+}): Promise<ApiResult<{ userKey?: string }>> {
   const requestBody: ManagerSignUpRequest = {
     username: payload.username,
     email: payload.email,
@@ -137,7 +136,7 @@ export async function signUpManager(payload: {
     signupSecret: payload.signupSecret,
   };
 
-  return postJson<{ id?: number }>("/api/users", requestBody);
+  return postJson<{ userKey?: string }>("/api/users", requestBody);
 }
 
 export async function logout(): Promise<void> {

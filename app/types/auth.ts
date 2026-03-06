@@ -20,7 +20,7 @@ export type ManagerSignUpRequest = {
 
 export type AuthUser = {
   username?: string;
-  userId?: number;
+  userKey?: string;
   role?: string;
   exp?: number;
 };
