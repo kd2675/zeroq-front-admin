@@ -2,6 +2,8 @@ import type { ResponseEnvelope } from "@/app/types/response";
 
 export const API_BASE =
   process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
+export const ADMIN_API_BASE =
+  process.env.NEXT_PUBLIC_ADMIN_API_URL ?? API_BASE;
 
 export type ApiResult<T> = {
   ok: boolean;
@@ -16,6 +18,7 @@ type RequestOptions = {
   body?: unknown;
   headers?: Record<string, string>;
   credentials?: RequestCredentials;
+  baseUrl?: string;
 };
 
 function isEnvelope<T>(value: unknown): value is ResponseEnvelope<T> {
@@ -36,9 +39,10 @@ async function requestJson<T>(
   options: RequestOptions = {},
 ): Promise<ApiResult<T>> {
   const method = options.method ?? "GET";
+  const baseUrl = options.baseUrl ?? API_BASE;
 
   try {
-    const response = await fetch(`${API_BASE}${path}`, {
+    const response = await fetch(`${baseUrl}${path}`, {
       method,
       headers: {
         "Content-Type": "application/json",
@@ -133,4 +137,48 @@ export function patchJson<T>(
   headers?: Record<string, string>,
 ): Promise<ApiResult<T>> {
   return requestJson<T>(path, { method: "PATCH", body, headers });
+}
+
+export function deleteJson<T>(
+  path: string,
+  headers?: Record<string, string>,
+): Promise<ApiResult<T>> {
+  return requestJson<T>(path, { method: "DELETE", headers });
+}
+
+export function getAdminJson<T>(
+  path: string,
+  headers?: Record<string, string>,
+): Promise<ApiResult<T>> {
+  return requestJson<T>(path, {
+    method: "GET",
+    headers,
+    baseUrl: ADMIN_API_BASE,
+  });
+}
+
+export function putAdminJson<T>(
+  path: string,
+  body: unknown,
+  headers?: Record<string, string>,
+): Promise<ApiResult<T>> {
+  return requestJson<T>(path, {
+    method: "PUT",
+    body,
+    headers,
+    baseUrl: ADMIN_API_BASE,
+  });
+}
+
+export function postAdminJson<T>(
+  path: string,
+  body: unknown,
+  headers?: Record<string, string>,
+): Promise<ApiResult<T>> {
+  return requestJson<T>(path, {
+    method: "POST",
+    body,
+    headers,
+    baseUrl: ADMIN_API_BASE,
+  });
 }

@@ -1,11 +1,11 @@
 import { Suspense } from "react";
-import { DashboardScreen } from "@/app/components/admin/screens";
+import { SensorsScreen } from "@/app/components/admin/screens";
 import { LoadingScreen } from "@/app/components/admin/ui";
 
-export default function Page() {
+export default function SensorsPage() {
   return (
     <Suspense fallback={<LoadingScreen />}>
-      <DashboardScreen />
+      <SensorsScreen />
     </Suspense>
   );
 }

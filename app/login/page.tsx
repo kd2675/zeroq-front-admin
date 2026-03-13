@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   clearAccessToken,
@@ -11,6 +11,7 @@ import {
   login,
   setAccessToken,
 } from "@/app/lib/auth";
+import { initializeProfile } from "@/app/lib/profile";
 
 const PENDING_PATH_KEY = "zeroq_admin_pending_path";
 
@@ -32,18 +33,18 @@ function LoginPageContent() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
+  const routeToPendingOrHome = useCallback(() => {
+    const pendingPath = window.sessionStorage.getItem(PENDING_PATH_KEY);
+    if (pendingPath) {
+      window.sessionStorage.removeItem(PENDING_PATH_KEY);
+      router.replace(pendingPath);
+      return;
+    }
+    router.replace("/");
+  }, [router]);
+
   useEffect(() => {
     let cancelled = false;
-
-    const routeToPendingOrHome = () => {
-      const pendingPath = window.sessionStorage.getItem(PENDING_PATH_KEY);
-      if (pendingPath) {
-        window.sessionStorage.removeItem(PENDING_PATH_KEY);
-        router.replace(pendingPath);
-        return;
-      }
-      router.replace("/");
-    };
 
     const bootstrap = async () => {
       if (tokenFromQuery) {
@@ -53,6 +54,16 @@ function LoginPageContent() {
         if (!isManagerOrAdmin(user?.role)) {
           clearAccessToken();
           router.replace("/login?denied=1");
+          return;
+        }
+
+        const initializeResult = await initializeProfile(tokenFromQuery);
+        if (cancelled) {
+          return;
+        }
+        if (initializeResult.error) {
+          clearAccessToken();
+          setError(`프로필 생성에 실패했습니다. (${initializeResult.error})`);
           return;
         }
 
@@ -80,7 +91,7 @@ function LoginPageContent() {
     return () => {
       cancelled = true;
     };
-  }, [router, tokenFromQuery]);
+  }, [routeToPendingOrHome, router, tokenFromQuery]);
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -108,7 +119,14 @@ function LoginPageContent() {
       return;
     }
 
-    router.replace("/");
+    const initializeResult = await initializeProfile(result.data.accessToken);
+    if (initializeResult.error) {
+      clearAccessToken();
+      setError(`프로필 생성에 실패했습니다. (${initializeResult.error})`);
+      return;
+    }
+
+    routeToPendingOrHome();
   };
 
   return (
