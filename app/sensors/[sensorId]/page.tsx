@@ -1,6 +1,6 @@
 import { Suspense } from "react";
-import { SensorDetailScreen } from "@/app/components/admin/screens";
-import { LoadingScreen } from "@/app/components/admin/ui";
+import { SensorDetailScreen } from "@/app/components/admin/AdminScreens";
+import { LoadingScreen } from "@/app/components/admin/AdminUI";
 
 export default async function SensorDetailPage({
   params,

@@ -30,7 +30,7 @@ import {
   type Severity,
   type SpaceRecord,
   updateAdminConsoleSettings,
-} from "@/app/lib/admin-console";
+} from "@/app/lib/adminConsole";
 import {
   AdminShell,
   cn,
@@ -42,7 +42,7 @@ import {
   ModalFrame,
   Panel,
   StatusBadge,
-} from "@/app/components/admin/ui";
+} from "@/app/components/admin/AdminUI";
 
 const SENSOR_TYPES = ["OCCUPANCY_DETECTION"];
 const SENSOR_PROTOCOLS = ["MQTT", "HTTP"];

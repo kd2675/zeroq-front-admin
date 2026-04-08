@@ -1,6 +1,6 @@
 import { Suspense } from "react";
-import { GatewayDetailScreen } from "@/app/components/admin/screens";
-import { LoadingScreen } from "@/app/components/admin/ui";
+import { GatewayDetailScreen } from "@/app/components/admin/AdminScreens";
+import { LoadingScreen } from "@/app/components/admin/AdminUI";
 
 export default async function GatewayDetailPage({
   params,

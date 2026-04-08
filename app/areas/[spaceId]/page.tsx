@@ -1,6 +1,6 @@
 import { Suspense } from "react";
-import { AreaDetailScreen } from "@/app/components/admin/screens";
-import { LoadingScreen } from "@/app/components/admin/ui";
+import { AreaDetailScreen } from "@/app/components/admin/AdminScreens";
+import { LoadingScreen } from "@/app/components/admin/AdminUI";
 
 export default async function AreaDetailPage({
   params,
