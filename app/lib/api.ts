@@ -4,6 +4,8 @@ export const API_BASE =
   process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
 export const ADMIN_API_BASE =
   process.env.NEXT_PUBLIC_ADMIN_API_URL ?? API_BASE;
+export const ZEROQ_ADMIN_CLIENT_ID =
+  process.env.NEXT_PUBLIC_CLIENT_ID ?? "zeroq-front-admin";
 
 export type ApiResult<T> = {
   ok: boolean;

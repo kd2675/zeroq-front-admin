@@ -5,14 +5,21 @@ import type {
   ManagerSignUpRequest,
 } from "@/app/types/auth";
 import type { ApiResult } from "@/app/lib/api";
-import { postJson } from "@/app/lib/api";
+import { postJson, ZEROQ_ADMIN_CLIENT_ID } from "@/app/lib/api";
 import { emitAuthChanged, emitAuthExpired } from "@/app/lib/authEvents";
 
 const TOKEN_EXPIRY_LEEWAY_SECONDS = 300;
-const LOCAL_CLIENT_ID =
-  process.env.NEXT_PUBLIC_CLIENT_ID ?? "zeroq-front-admin";
 let accessTokenMemory: string | null = null;
 let refreshInFlight: Promise<string | null> | null = null;
+
+function withClientId(
+  headers: Record<string, string> = {},
+): Record<string, string> {
+  return {
+    "X-Client-Id": ZEROQ_ADMIN_CLIENT_ID,
+    ...headers,
+  };
+}
 
 export function getAccessToken(): string | null {
   return accessTokenMemory;
@@ -117,9 +124,7 @@ export function scheduleTokenExpiry(
 export async function login(
   payload: LoginRequest,
 ): Promise<ApiResult<LoginResponse>> {
-  return postJson<LoginResponse>("/auth/login", payload, {
-    "X-Client-Id": LOCAL_CLIENT_ID,
-  });
+  return postJson<LoginResponse>("/auth/login", payload, withClientId());
 }
 
 export async function signUpManager(payload: {
@@ -136,17 +141,27 @@ export async function signUpManager(payload: {
     signupSecret: payload.signupSecret,
   };
 
-  return postJson<{ userKey?: string }>("/api/users", requestBody);
+  return postJson<{ userKey?: string }>(
+    "/api/users",
+    requestBody,
+    withClientId(),
+  );
 }
 
 export async function logout(): Promise<void> {
   const token = getAccessToken();
-  const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
+  const headers = withClientId(
+    token ? { Authorization: `Bearer ${token}` } : undefined,
+  );
   await postJson<void>("/auth/logout", {}, headers);
 }
 
 async function requestRefreshAccessToken(): Promise<string | null> {
-  const result = await postJson<LoginResponse>("/auth/refresh", {});
+  const result = await postJson<LoginResponse>(
+    "/auth/refresh",
+    {},
+    withClientId(),
+  );
   if (!result.ok || !result.data?.accessToken) {
     return null;
   }
