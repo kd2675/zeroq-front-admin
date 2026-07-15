@@ -6,7 +6,8 @@
     "dev": "next dev -p 3002",
     "build": "next build",
     "start": "next start -p 3002",
-    "lint": "eslint"
+    "lint": "eslint",
+    "verify:auth": "node --no-warnings --experimental-strip-types scripts/verify-auth-flow.mjs"
   },
   "dependencies": {
     "next": "16.1.1",

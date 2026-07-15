@@ -15,6 +15,7 @@ ZeroQ 관리자용 Next.js 앱입니다. 로그인/회원가입 이후 점유율
 - `/settings`
 - `/logs`
 - `/login`
+- `/auth/callback`
 - `/signup`
 - `/space-layout` (`/areas` 호환 리다이렉트)
 
@@ -58,6 +59,7 @@ NEXT_PUBLIC_CLIENT_ID=zeroq-front-admin
 - 로그인: `/auth/login`
 - 회원가입: `/api/users`
 - refresh/logout: Gateway 경유 auth API 사용
+- OAuth callback: URL 토큰 없이 HttpOnly refresh cookie로 세션 복구
 - 공간/점유율 API: `/api/zeroq/v1/spaces`, `/api/zeroq/v1/occupancy/**`
 - 센서 운영 API: `/api/zeroq/v1/space-sensors/**`
 - 일반 API base 기본값: `http://localhost:8080` (`NEXT_PUBLIC_API_URL`)

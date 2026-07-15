@@ -4,25 +4,27 @@ import Link from "next/link";
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
-  clearAccessToken,
   ensureAccessToken,
   getUserFromToken,
   isManagerOrAdmin,
   login,
+  logout,
   setAccessToken,
 } from "@/app/lib/auth";
+import { consumePendingPath } from "@/app/lib/authRouting";
 import { initializeProfile } from "@/app/lib/profile";
-
-const PENDING_PATH_KEY = "zeroq_admin_pending_path";
 
 function LoginPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const tokenFromQuery = searchParams.get("token");
   const signupDone = searchParams.get("signup") === "1";
   const denied = searchParams.get("denied") === "1";
   const expired = searchParams.get("expired") === "1";
+  const loginError = searchParams.get("loginError");
+  const oauthError = searchParams.get("error");
+  const oauthErrorCode = searchParams.get("errorCode");
+  const oauthProvider = searchParams.get("provider");
   const usernameFromQuery = useMemo(
     () => searchParams.get("username") ?? "",
     [searchParams],
@@ -30,49 +32,26 @@ function LoginPageContent() {
 
   const [username, setUsername] = useState(usernameFromQuery);
   const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(() =>
+    resolveOAuthError(oauthErrorCode, oauthProvider, oauthError) ?? resolveLoginError(loginError),
+  );
   const [loading, setLoading] = useState(false);
+  const [isRestoring, setIsRestoring] = useState(true);
 
   const routeToPendingOrHome = useCallback(() => {
-    const pendingPath = window.sessionStorage.getItem(PENDING_PATH_KEY);
-    if (pendingPath) {
-      window.sessionStorage.removeItem(PENDING_PATH_KEY);
-      router.replace(pendingPath);
-      return;
-    }
-    router.replace("/");
+    router.replace(consumePendingPath());
   }, [router]);
 
   useEffect(() => {
     let cancelled = false;
 
     const bootstrap = async () => {
-      if (tokenFromQuery) {
-        setAccessToken(tokenFromQuery);
-        const user = getUserFromToken(tokenFromQuery);
-
-        if (!isManagerOrAdmin(user?.role)) {
-          clearAccessToken();
-          router.replace("/login?denied=1");
-          return;
-        }
-
-        const initializeResult = await initializeProfile(tokenFromQuery);
-        if (cancelled) {
-          return;
-        }
-        if (initializeResult.error) {
-          clearAccessToken();
-          setError(`프로필 생성에 실패했습니다. (${initializeResult.error})`);
-          return;
-        }
-
-        routeToPendingOrHome();
+      const restoredToken = await ensureAccessToken();
+      if (cancelled) {
         return;
       }
-
-      const restoredToken = await ensureAccessToken();
-      if (cancelled || !restoredToken) {
+      if (!restoredToken) {
+        setIsRestoring(false);
         return;
       }
 
@@ -82,16 +61,21 @@ function LoginPageContent() {
         return;
       }
 
-      clearAccessToken();
+      await logout();
       router.replace("/login?denied=1");
     };
 
-    void bootstrap();
+    void bootstrap().catch(() => {
+      if (!cancelled) {
+        setError("로그인 상태를 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.");
+        setIsRestoring(false);
+      }
+    });
 
     return () => {
       cancelled = true;
     };
-  }, [routeToPendingOrHome, router, tokenFromQuery]);
+  }, [routeToPendingOrHome, router]);
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -103,31 +87,46 @@ function LoginPageContent() {
     }
 
     setLoading(true);
-    const result = await login({ username: username.trim(), password });
-    setLoading(false);
+    try {
+      const result = await login({ username: username.trim(), password });
+      if (!result.ok || !result.data?.accessToken) {
+        setError(result.message ?? "로그인에 실패했습니다.");
+        return;
+      }
 
-    if (!result.ok || !result.data?.accessToken) {
-      setError(result.message ?? "로그인에 실패했습니다.");
-      return;
+      setAccessToken(result.data.accessToken);
+      const user = getUserFromToken(result.data.accessToken);
+      if (!isManagerOrAdmin(user?.role)) {
+        await logout();
+        setError("ZeroQ Admin은 MANAGER/ADMIN 계정만 로그인할 수 있습니다.");
+        return;
+      }
+
+      const initializeResult = await initializeProfile(result.data.accessToken);
+      if (initializeResult.error) {
+        await logout();
+        setError("프로필을 준비하지 못했습니다. 다시 로그인해 주세요.");
+        return;
+      }
+
+      routeToPendingOrHome();
+    } catch {
+      setError("로그인 서버에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.");
+    } finally {
+      setLoading(false);
     }
-
-    setAccessToken(result.data.accessToken);
-    const user = getUserFromToken(result.data.accessToken);
-    if (!isManagerOrAdmin(user?.role)) {
-      clearAccessToken();
-      setError("zeroq-front-admin은 MANAGER/ADMIN 계정만 로그인할 수 있습니다.");
-      return;
-    }
-
-    const initializeResult = await initializeProfile(result.data.accessToken);
-    if (initializeResult.error) {
-      clearAccessToken();
-      setError(`프로필 생성에 실패했습니다. (${initializeResult.error})`);
-      return;
-    }
-
-    routeToPendingOrHome();
   };
+
+  if (isRestoring) {
+    return (
+      <main className="grid min-h-screen place-items-center bg-slate-100 px-4" aria-live="polite">
+        <section className="text-center">
+          <span className="mx-auto block size-8 animate-spin rounded-full border-2 border-slate-300 border-t-orange-600" aria-hidden="true" />
+          <p className="mt-4 text-sm text-slate-600">로그인 상태를 확인하고 있습니다.</p>
+        </section>
+      </main>
+    );
+  }
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-100 px-4 py-10">
@@ -148,6 +147,8 @@ function LoginPageContent() {
             <input
               id="username"
               type="text"
+              required
+              maxLength={255}
               autoComplete="username"
               value={username}
               onChange={(event) => setUsername(event.target.value)}
@@ -163,6 +164,8 @@ function LoginPageContent() {
             <input
               id="password"
               type="password"
+              required
+              maxLength={255}
               autoComplete="current-password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
@@ -190,7 +193,7 @@ function LoginPageContent() {
           ) : null}
 
           {error ? (
-            <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+            <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">
               {error}
             </p>
           ) : null}
@@ -213,6 +216,44 @@ function LoginPageContent() {
       </div>
     </div>
   );
+}
+
+function resolveLoginError(loginError: string | null): string | null {
+  switch (loginError) {
+    case "profile_initialize_failed":
+      return "프로필을 준비하지 못했습니다. 다시 로그인해 주세요.";
+    case "session_restore_failed":
+      return "소셜 로그인 세션을 확인할 수 없습니다. 다시 시도해 주세요.";
+    case "processing_failed":
+      return "로그인 정보를 처리하는 중 문제가 발생했습니다. 다시 시도해 주세요.";
+    default:
+      return null;
+  }
+}
+
+function resolveOAuthError(
+  errorCode: string | null,
+  provider: string | null,
+  fallback: string | null,
+): string | null {
+  if (errorCode === "oauth_provider_mismatch") {
+    const normalizedProvider = provider?.trim().toUpperCase();
+    const providerLabel = normalizedProvider === "NAVER"
+      ? "네이버"
+      : normalizedProvider === "KAKAO"
+        ? "카카오"
+        : null;
+    return providerLabel
+      ? `${providerLabel}로 가입된 계정입니다. ${providerLabel} 로그인을 이용해 주세요.`
+      : "다른 소셜 로그인 방식으로 가입된 계정입니다. 기존 로그인 수단을 이용해 주세요.";
+  }
+  if (errorCode === "oauth_email_missing") {
+    return "소셜 계정의 이메일 제공 동의가 필요합니다.";
+  }
+  if (errorCode === "oauth_provider_unsupported") {
+    return "지원하지 않는 소셜 로그인 방식입니다.";
+  }
+  return fallback ? "소셜 로그인에 실패했습니다. 다시 시도해 주세요." : null;
 }
 
 export default function LoginPage() {

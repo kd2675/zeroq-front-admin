@@ -11,6 +11,10 @@ import { emitAuthChanged, emitAuthExpired } from "@/app/lib/authEvents";
 const TOKEN_EXPIRY_LEEWAY_SECONDS = 300;
 let accessTokenMemory: string | null = null;
 let refreshInFlight: Promise<string | null> | null = null;
+let bootstrapRefreshDone = false;
+let bootstrapRefreshInFlight: Promise<string | null> | null = null;
+let authGeneration = 0;
+let explicitlySignedOut = false;
 
 function withClientId(
   headers: Record<string, string> = {},
@@ -27,11 +31,17 @@ export function getAccessToken(): string | null {
 
 export function setAccessToken(token: string): void {
   accessTokenMemory = token;
+  explicitlySignedOut = false;
+  bootstrapRefreshDone = false;
+  authGeneration += 1;
   emitAuthChanged();
 }
 
 export function clearAccessToken(): void {
   accessTokenMemory = null;
+  bootstrapRefreshDone = false;
+  bootstrapRefreshInFlight = null;
+  authGeneration += 1;
   emitAuthChanged();
 }
 
@@ -58,7 +68,9 @@ function decodeBase64Url(input: string): string | null {
   try {
     const normalized = input.replace(/-/g, "+").replace(/_/g, "/");
     const padded = normalized + "=".repeat((4 - (normalized.length % 4)) % 4);
-    return atob(padded);
+    const binary = atob(padded);
+    const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
   } catch {
     return null;
   }
@@ -149,14 +161,20 @@ export async function signUpManager(payload: {
 }
 
 export async function logout(): Promise<void> {
-  const token = getAccessToken();
-  const headers = withClientId(
-    token ? { Authorization: `Bearer ${token}` } : undefined,
-  );
-  await postJson<void>("/auth/logout", {}, headers);
+  explicitlySignedOut = true;
+  authGeneration += 1;
+  try {
+    await postJson<void>("/auth/logout", {}, withClientId());
+  } finally {
+    accessTokenMemory = null;
+    bootstrapRefreshDone = true;
+    bootstrapRefreshInFlight = null;
+    emitAuthChanged();
+  }
 }
 
 async function requestRefreshAccessToken(): Promise<string | null> {
+  const requestGeneration = authGeneration;
   const result = await postJson<LoginResponse>(
     "/auth/refresh",
     {},
@@ -165,11 +183,17 @@ async function requestRefreshAccessToken(): Promise<string | null> {
   if (!result.ok || !result.data?.accessToken) {
     return null;
   }
+  if (requestGeneration !== authGeneration || explicitlySignedOut) {
+    return null;
+  }
   setAccessToken(result.data.accessToken);
   return result.data.accessToken;
 }
 
 export async function refreshAccessToken(): Promise<string | null> {
+  if (explicitlySignedOut) {
+    return null;
+  }
   if (refreshInFlight) {
     return refreshInFlight;
   }
@@ -184,5 +208,16 @@ export async function ensureAccessToken(): Promise<string | null> {
   if (accessTokenMemory) {
     return accessTokenMemory;
   }
-  return refreshAccessToken();
+  if (explicitlySignedOut || bootstrapRefreshDone) {
+    return null;
+  }
+  if (bootstrapRefreshInFlight) {
+    return bootstrapRefreshInFlight;
+  }
+
+  bootstrapRefreshInFlight = refreshAccessToken().finally(() => {
+    bootstrapRefreshDone = true;
+    bootstrapRefreshInFlight = null;
+  });
+  return bootstrapRefreshInFlight;
 }

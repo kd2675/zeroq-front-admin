@@ -41,20 +41,25 @@ export default function SignUpPage() {
     }
 
     setLoading(true);
-    const result = await signUpManager({
-      username: username.trim(),
-      email: email.trim(),
-      password,
-      signupSecret: signupSecret.trim(),
-    });
-    setLoading(false);
+    try {
+      const result = await signUpManager({
+        username: username.trim(),
+        email: email.trim(),
+        password,
+        signupSecret: signupSecret.trim(),
+      });
 
-    if (!result.ok) {
-      setError(result.message ?? "회원가입에 실패했습니다.");
-      return;
+      if (!result.ok) {
+        setError(result.message ?? "회원가입에 실패했습니다.");
+        return;
+      }
+
+      router.push(`/login?signup=1&username=${encodeURIComponent(username.trim())}`);
+    } catch {
+      setError("회원가입 서버에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.");
+    } finally {
+      setLoading(false);
     }
-
-    router.push(`/login?signup=1&username=${encodeURIComponent(username.trim())}`);
   };
 
   return (
@@ -76,6 +81,8 @@ export default function SignUpPage() {
             <input
               id="username"
               type="text"
+              required
+              maxLength={255}
               autoComplete="username"
               value={username}
               onChange={(event) => setUsername(event.target.value)}
@@ -91,6 +98,8 @@ export default function SignUpPage() {
             <input
               id="email"
               type="email"
+              required
+              maxLength={255}
               autoComplete="email"
               value={email}
               onChange={(event) => setEmail(event.target.value)}
@@ -106,6 +115,9 @@ export default function SignUpPage() {
             <input
               id="password"
               type="password"
+              required
+              minLength={8}
+              maxLength={255}
               autoComplete="new-password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
@@ -121,6 +133,9 @@ export default function SignUpPage() {
             <input
               id="passwordConfirm"
               type="password"
+              required
+              minLength={8}
+              maxLength={255}
               autoComplete="new-password"
               value={passwordConfirm}
               onChange={(event) => setPasswordConfirm(event.target.value)}
@@ -139,18 +154,21 @@ export default function SignUpPage() {
             <input
               id="signupSecret"
               type="password"
+              required
+              autoComplete="off"
+              maxLength={255}
               value={signupSecret}
               onChange={(event) => setSignupSecret(event.target.value)}
               className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-orange-500"
-              placeholder="임시 비밀번호 입력"
+              placeholder="발급받은 가입 코드 입력"
             />
             <p className="mt-1 text-xs text-slate-500">
-              임시값: 1234 (추후 서버 환경변수로 변경 권장)
+              운영자가 별도로 전달한 가입 코드가 있어야 MANAGER 계정을 만들 수 있습니다.
             </p>
           </div>
 
           {error ? (
-            <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+            <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">
               {error}
             </p>
           ) : null}
