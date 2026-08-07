@@ -13,6 +13,10 @@ export default function AuthCallbackPage() {
   useEffect(() => {
     const failureQuery = buildOAuthFailureQuery(window.location.search);
     if (failureQuery) {
+      const nextPath = consumePendingPath();
+      if (nextPath !== "/") {
+        failureQuery.set("next", nextPath);
+      }
       router.replace(`/login?${failureQuery}`);
       return;
     }
@@ -74,7 +78,7 @@ export default function AuthCallbackPage() {
   );
 }
 
-function buildOAuthFailureQuery(search: string): string | null {
+function buildOAuthFailureQuery(search: string): URLSearchParams | null {
   const callbackQuery = new URLSearchParams(search);
   if (!callbackQuery.has("error") && !callbackQuery.has("errorCode")) {
     return null;
@@ -86,5 +90,5 @@ function buildOAuthFailureQuery(search: string): string | null {
       loginQuery.set(key, value);
     }
   });
-  return loginQuery.toString();
+  return loginQuery;
 }

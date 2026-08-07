@@ -9,7 +9,7 @@ import {
   logout,
   normalizeRole,
 } from "@/app/lib/auth";
-import { rememberPendingPath } from "@/app/lib/authRouting";
+import { buildLoginPath } from "@/app/lib/authRouting";
 
 export default function useAdminAccess() {
   const router = useRouter();
@@ -27,23 +27,20 @@ export default function useAdminAccess() {
     }
 
     if (authStatus !== "in") {
-      rememberPendingPath(`${pathname}${search ? `?${search}` : ""}`);
-      router.replace("/login");
+      router.replace(buildLoginPath(`${pathname}${search ? `?${search}` : ""}`));
       return;
     }
 
     if (!allowed) {
-      rememberPendingPath(`${pathname}${search ? `?${search}` : ""}`);
       void logout();
-      router.replace("/login?denied=1");
+      router.replace(buildLoginPath(`${pathname}${search ? `?${search}` : ""}`, { denied: true }));
     }
   }, [allowed, authStatus, isHydrated, pathname, router, search]);
 
   const resolveAuthHeaders = useCallback(async (): Promise<Record<string, string> | null> => {
     const token = await ensureAccessToken();
     if (!token) {
-      rememberPendingPath(`${pathname}${search ? `?${search}` : ""}`);
-      router.replace("/login?expired=1");
+      router.replace(buildLoginPath(`${pathname}${search ? `?${search}` : ""}`, { expired: true }));
       return null;
     }
 

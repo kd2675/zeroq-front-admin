@@ -29,6 +29,22 @@ export function sanitizeAuthNextPath(value: string | null): string {
   }
 }
 
+export function buildLoginPath(nextPath: string, options: { denied?: boolean; expired?: boolean } = {}): string {
+  const query = new URLSearchParams();
+  const safeNextPath = sanitizeAuthNextPath(nextPath);
+  if (safeNextPath !== "/") {
+    query.set("next", safeNextPath);
+  }
+  if (options.denied) {
+    query.set("denied", "1");
+  }
+  if (options.expired) {
+    query.set("expired", "1");
+  }
+  const queryString = query.toString();
+  return queryString ? `/login?${queryString}` : "/login";
+}
+
 export function rememberPendingPath(nextPath: string): void {
   window.sessionStorage.setItem(ADMIN_PENDING_PATH_KEY, sanitizeAuthNextPath(nextPath));
 }

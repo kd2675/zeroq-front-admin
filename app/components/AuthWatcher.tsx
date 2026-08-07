@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { onAuthExpired } from "@/app/lib/authEvents";
-import { rememberPendingPath } from "@/app/lib/authRouting";
+import { buildLoginPath } from "@/app/lib/authRouting";
 
 const LOGIN_PATH = "/login";
 const SIGNUP_PATH = "/signup";
@@ -26,8 +26,7 @@ export default function AuthWatcher() {
 
       const query = searchParams.toString();
       const pendingPath = `${pathname}${query ? `?${query}` : ""}`;
-      rememberPendingPath(pendingPath);
-      router.push("/login?expired=1");
+      router.push(buildLoginPath(pendingPath, { expired: true }));
     });
 
     return () => {

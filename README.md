@@ -58,6 +58,7 @@ NEXT_PUBLIC_CLIENT_ID=zeroq-front-admin
 
 - 로그인: `/auth/login`
 - 회원가입: `/api/users`
+- OAuth authorize: `/oauth2/authorize/naver-zeroq-admin`, `/oauth2/authorize/kakao-zeroq-admin`
 - refresh/logout: Gateway 경유 auth API 사용
 - OAuth callback: URL 토큰 없이 HttpOnly refresh cookie로 세션 복구
 - 공간/점유율 API: `/api/zeroq/v1/spaces`, `/api/zeroq/v1/occupancy/**`
@@ -69,5 +70,5 @@ NEXT_PUBLIC_CLIENT_ID=zeroq-front-admin
 
 - Dashboard/Area/Sensor/Analytics 화면은 `spaces`, `occupancy`, `space-sensors` API를 우선 사용하고, gateway/log/settings는 운영 파생 데이터 뷰를 함께 사용합니다.
 - Sensor List 화면은 기존 센서 등록, 상태 변경, 명령 전송 액션을 유지합니다.
-- 직접 로그인하거나 세션 만료 후 다시 로그인해도 저장된 pending path로 복귀합니다.
+- 직접 로그인, OAuth 로그인, 세션 만료 후 재로그인 모두 검증된 `next` 내부 경로로 복귀합니다.
 - 접근 권한이 `MANAGER`/`ADMIN`이 아니면 로그인 후에도 `/login?denied=1`로 되돌립니다.
