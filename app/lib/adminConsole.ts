@@ -8,14 +8,6 @@ import {
   putJson,
 } from "@/app/lib/api";
 
-type PagePayload<T> = {
-  content: T[];
-  totalElements?: number;
-  totalPages?: number;
-  number?: number;
-  size?: number;
-};
-
 type SpaceApiItem = {
   id: number;
   name: string;
@@ -29,10 +21,14 @@ type SpaceApiItem = {
 
 type SensorSnapshotApi = {
   placeId: number;
-  occupiedCount: number;
-  activeSensorCount: number;
-  occupancyRate: number;
+  occupiedCount: number | null;
+  activeSensorCount: number | null;
+  configuredSensorCount?: number;
+  reportingSensorCount?: number;
+  occupancyRate: number | null;
   crowdLevel: string;
+  dataStatus?: "AVAILABLE" | "PARTIAL" | "UNAVAILABLE";
+  reportingCoveragePercent?: number;
   lastMeasuredAt?: string;
   lastCalculatedAt?: string;
   sourceWindowSeconds?: number;
@@ -75,22 +71,28 @@ type TelemetryApi = {
   confidence?: number;
 };
 
-type SpaceOverviewApi = {
-  spaceId: number;
-  spaceName: string;
-  snapshot?: SensorSnapshotApi | null;
-  sensors?: SensorDeviceApi[];
-  recentTelemetry?: TelemetryApi[];
+export type SensorUsageBucket = {
+  from: string;
+  to: string;
+  occupiedSeconds: number;
+  observedSeconds: number;
+  utilizationPercent: number;
+  coveragePercent: number;
 };
 
-type OccupancyHistoryApi = {
+export type SensorUsageSummary = {
   spaceId: number;
   spaceName: string;
-  currentOccupancy: number;
-  maxCapacity: number;
-  occupancyPercentage: number;
-  crowdLevel: string;
-  lastUpdated?: string;
+  from: string;
+  to: string;
+  configuredSensorCount: number;
+  reportingSensorCount: number;
+  occupiedSeconds: number;
+  observedSeconds: number;
+  utilizationPercent: number;
+  coveragePercent: number;
+  sourceFreshnessSeconds: number;
+  buckets: SensorUsageBucket[];
 };
 
 export type Severity = "info" | "warning" | "critical" | "success";
@@ -384,13 +386,13 @@ export async function updateAdminConsoleSettings(
 export async function loadSpaceHistory(
   headers: Record<string, string>,
   _space: SpaceRecord,
-): Promise<OccupancyHistoryApi[]> {
-  const result = await getJson<PagePayload<OccupancyHistoryApi>>(
-    `/api/zeroq/v1/occupancy/spaces/${_space.spaceId}/history?page=0&size=12`,
+): Promise<SensorUsageSummary | null> {
+  const result = await getJson<SensorUsageSummary>(
+    `/api/zeroq/v1/space-sensors/spaces/${_space.spaceId}/usage`,
     headers,
   );
 
-  return result.ok && result.data?.content?.length ? result.data.content : [];
+  return result.ok && result.data ? result.data : null;
 }
 
 export async function registerSensorDevice(

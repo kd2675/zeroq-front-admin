@@ -27,6 +27,7 @@ import {
   type CreateZoneInput,
   type GatewayRecord,
   type SensorRecord,
+  type SensorUsageSummary,
   type Severity,
   type SpaceRecord,
   updateAdminConsoleSettings,
@@ -45,13 +46,12 @@ import {
 } from "@/app/components/admin/AdminUI";
 
 const SENSOR_TYPES = ["OCCUPANCY_DETECTION"];
-const SENSOR_PROTOCOLS = ["MQTT", "HTTP"];
+const SENSOR_PROTOCOLS = ["BLE_GATEWAY", "MQTT", "HTTP"];
 const SENSOR_COMMAND_TYPES = [
   "REBOOT",
   "SET_THRESHOLD",
   "SET_SAMPLE_INTERVAL",
   "SYNC_TIME",
-  "FIRMWARE_UPDATE",
 ];
 const ZONE_OPERATIONAL_STATUSES = ["ACTIVE", "STAGING", "MAINTENANCE", "CRITICAL", "CLOSED"];
 const GATEWAY_ROLES = ["EDGE", "HUB"];
@@ -130,30 +130,10 @@ function textOrFallback(value?: string | null, fallback = "미등록") {
   return value && value.trim().length > 0 ? value : fallback;
 }
 
-function formatOptionalNumber(value?: number | null, suffix = "") {
-  if (value === null || value === undefined) {
-    return "N/A";
-  }
-  return `${formatNumber(value)}${suffix}`;
-}
-
-function severityTone(severity: Severity): "info" | "warning" | "critical" | "success" | "neutral" {
-  if (severity === "critical") {
-    return "critical";
-  }
-  if (severity === "warning") {
-    return "warning";
-  }
-  if (severity === "success") {
-    return "success";
-  }
-  if (severity === "info") {
-    return "info";
-  }
-  return "neutral";
-}
-
 function spaceTone(space: SpaceRecord) {
+  if (!hasAvailableOccupancy(space)) {
+    return "neutral" as const;
+  }
   if (space.occupancyRate >= 90) {
     return "critical" as const;
   }
@@ -164,6 +144,16 @@ function spaceTone(space: SpaceRecord) {
     return "info" as const;
   }
   return "success" as const;
+}
+
+function hasAvailableOccupancy(space: SpaceRecord) {
+  return space.snapshot?.dataStatus !== "UNAVAILABLE"
+    && space.snapshot?.occupancyRate !== null
+    && space.snapshot?.occupancyRate !== undefined;
+}
+
+function formatSpaceOccupancy(space: SpaceRecord) {
+  return hasAvailableOccupancy(space) ? formatPercent(space.occupancyRate) : "N/A";
 }
 
 function searchField(
@@ -296,11 +286,21 @@ function useWorkspaceLoader() {
 function useSpaceHistoryState(state: WorkspaceState, space: SpaceRecord | null) {
   const { isReady, resolveAuthHeaders } = state;
   const [history, setHistory] = useState<Array<{ label: string; value: number }>>([]);
-  const toHistoryPoints = useCallback((rows: Array<{ occupancyPercentage?: number | null }>) => {
-    return rows.map((row, index) => ({
-      label: `${String(index).padStart(2, "0")}:00`,
-      value: row.occupancyPercentage ?? 0,
-    }));
+  const [usage, setUsage] = useState<SensorUsageSummary | null>(null);
+  const toHistoryPoints = useCallback((summary: SensorUsageSummary | null) => {
+    return (summary?.buckets ?? []).filter((bucket) => bucket.observedSeconds > 0).map((bucket) => {
+      const utcDate = new Date(`${bucket.from}Z`);
+      const label = Number.isNaN(utcDate.getTime())
+        ? "--"
+        : new Intl.DateTimeFormat("ko-KR", {
+            hour: "2-digit",
+            hour12: false,
+          }).format(utcDate);
+      return {
+        label,
+        value: bucket.utilizationPercent,
+      };
+    });
   }, []);
 
   useEffect(() => {
@@ -316,12 +316,13 @@ function useSpaceHistoryState(state: WorkspaceState, space: SpaceRecord | null) 
         return;
       }
 
-      const rows = await loadSpaceHistory(headers, space);
+      const summary = await loadSpaceHistory(headers, space);
       if (cancelled) {
         return;
       }
 
-      setHistory(toHistoryPoints(rows));
+      setUsage(summary);
+      setHistory(toHistoryPoints(summary));
     })();
 
     return () => {
@@ -339,13 +340,14 @@ function useSpaceHistoryState(state: WorkspaceState, space: SpaceRecord | null) 
       return;
     }
 
-    const rows = await loadSpaceHistory(headers, space);
-    setHistory(toHistoryPoints(rows));
+    const summary = await loadSpaceHistory(headers, space);
+    setUsage(summary);
+    setHistory(toHistoryPoints(summary));
   }, [isReady, resolveAuthHeaders, space, toHistoryPoints]);
 
   const visibleHistory = useMemo(() => (space ? history : []), [history, space]);
 
-  return { history: visibleHistory, reloadHistory };
+  return { history: visibleHistory, usage, reloadHistory };
 }
 
 function NoticeStrip({
@@ -409,6 +411,9 @@ function ShellContent({
 }
 
 function occupancyStateLabel(space: SpaceRecord) {
+  if (!hasAvailableOccupancy(space)) {
+    return "Unknown";
+  }
   if (space.occupancyRate >= 90) {
     return "Critical";
   }
@@ -422,6 +427,9 @@ function occupancyStateLabel(space: SpaceRecord) {
 }
 
 function occupancyStateTone(space: SpaceRecord) {
+  if (!hasAvailableOccupancy(space)) {
+    return "neutral" as const;
+  }
   if (space.occupancyRate >= 90) {
     return "critical" as const;
   }
@@ -516,10 +524,11 @@ export function DashboardScreen() {
   }, [deferredQuery, state.workspace?.spaces]);
 
   const topSpace = visibleSpaces[0] ?? null;
-  const gateways = state.workspace?.gateways ?? [];
+  const gateways = useMemo(() => state.workspace?.gateways ?? [], [state.workspace?.gateways]);
   const alerts = state.workspace?.alerts ?? [];
   const logs = state.workspace?.logs ?? [];
   const peakZones = visibleSpaces
+    .filter(hasAvailableOccupancy)
     .slice()
     .sort((left, right) => right.occupancyRate - left.occupancyRate)
     .slice(0, 4);
@@ -612,7 +621,7 @@ export function DashboardScreen() {
                         {space.name}
                       </span>
                       <span className="font-bold text-sky-600 dark:text-sky-300">
-                        {Math.round(space.occupancyRate)}%
+                        {formatSpaceOccupancy(space)}
                       </span>
                     </div>
                     <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
@@ -963,7 +972,9 @@ export function AreaManagementScreen() {
                               : "text-slate-700 dark:text-slate-200",
                           )}
                         >
-                          {space.occupancyRate >= 100
+                          {!hasAvailableOccupancy(space)
+                            ? "수집 데이터 없음"
+                            : space.occupancyRate >= 100
                             ? "Overloaded"
                             : `${Math.round(space.occupancyRate)}%`}
                         </span>
@@ -978,7 +989,11 @@ export function AreaManagementScreen() {
                                 ? "bg-amber-500"
                                 : "bg-sky-500",
                           )}
-                          style={{ width: `${Math.max(Math.min(space.occupancyRate, 100), 5)}%` }}
+                          style={{
+                            width: hasAvailableOccupancy(space)
+                              ? `${Math.max(Math.min(space.occupancyRate, 100), 5)}%`
+                              : "0%",
+                          }}
                         />
                       </div>
                     </div>
@@ -1208,8 +1223,10 @@ export function AreaDetailScreen({ spaceId }: { spaceId: number }) {
           <div className="grid gap-4 xl:grid-cols-4">
             <MetricCard
               label="Current Occupancy"
-              value={formatNumber(space.occupiedCount)}
-              hint={`${formatPercent(space.occupancyRate)} · ${space.crowdLevel}`}
+              value={hasAvailableOccupancy(space) ? formatNumber(space.occupiedCount) : "N/A"}
+              hint={hasAvailableOccupancy(space)
+                ? `${formatPercent(space.occupancyRate)} · ${space.crowdLevel}`
+                : "최근 신뢰 가능한 센서 데이터가 없습니다."}
             />
             <MetricCard
               label="Active Sensors"
@@ -1346,10 +1363,10 @@ export function AreaDetailScreen({ spaceId }: { spaceId: number }) {
                 <div>
                   <h2 className="text-lg font-semibold text-white">Occupancy History</h2>
                   <p className="mt-1 text-sm text-slate-400">
-                    최근 12개 시점 기준 혼잡도 변화를 표시합니다.
+                    선택 기간의 실측 사용률을 시간 bucket별로 표시합니다.
                   </p>
                 </div>
-              <StatusBadge tone={spaceTone(space)}>{formatPercent(space.occupancyRate)}</StatusBadge>
+              <StatusBadge tone={spaceTone(space)}>{formatSpaceOccupancy(space)}</StatusBadge>
             </div>
             <div className="mt-5">
               <MiniBars points={history} />
@@ -1379,7 +1396,7 @@ export function SensorsScreen() {
   const [registerForm, setRegisterForm] = useState({
     sensorId: "",
     macAddress: "",
-    model: "ZQ-SENSOR-V2",
+    model: "ZQ-SENSOR-V3",
     type: SENSOR_TYPES[0],
     protocol: SENSOR_PROTOCOLS[0],
     placeId: 0,
@@ -1464,7 +1481,7 @@ export function SensorsScreen() {
     setRegisterForm({
       sensorId: "",
       macAddress: "",
-      model: "ZQ-SENSOR-V2",
+      model: "ZQ-SENSOR-V3",
       type: SENSOR_TYPES[0],
       protocol: SENSOR_PROTOCOLS[0],
       placeId: state.workspace?.spaces[0]?.spaceId ?? 0,
@@ -1843,6 +1860,10 @@ export function SensorsScreen() {
               setActionError("센서를 등록하려면 먼저 공간 정보를 등록해 주세요.");
               return;
             }
+            if (!registerForm.gatewayId) {
+              setActionError("센서를 등록할 게이트웨이를 선택해 주세요.");
+              return;
+            }
 
             void (async () => {
               const ok = await executeAction(
@@ -1942,8 +1963,9 @@ export function SensorsScreen() {
                 }))
               }
               className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none dark:border-slate-800 dark:bg-slate-900"
+              required
             >
-              <option value="">게이트웨이 미지정</option>
+              <option value="">게이트웨이 선택</option>
               {registerGatewayOptions.map((gateway) => (
                 <option key={gateway.gatewayId} value={gateway.gatewayId}>
                   {gateway.gatewayId}
@@ -1978,6 +2000,10 @@ export function SensorsScreen() {
             event.preventDefault();
             if (!installForm.sensorId) {
               setActionError("설치할 센서를 선택해 주세요.");
+              return;
+            }
+            if (!installForm.gatewayId) {
+              setActionError("센서를 연결할 게이트웨이를 선택해 주세요.");
               return;
             }
 
@@ -2048,8 +2074,9 @@ export function SensorsScreen() {
                 }))
               }
               className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none dark:border-slate-800 dark:bg-slate-900"
+              required
             >
-              <option value="">게이트웨이 미지정</option>
+              <option value="">게이트웨이 선택</option>
               {installGatewayOptions.map((gateway) => (
                 <option key={gateway.gatewayId} value={gateway.gatewayId}>
                   {gateway.gatewayId}
@@ -2075,7 +2102,7 @@ export function SensorsScreen() {
       <ModalFrame
         open={isCommandModalOpen}
         title="Send Command"
-        description="선택한 센서에 운영 명령을 전송합니다."
+        description="명령을 대기열에 등록하면 gateway scanner가 BLE GATT로 전달하고 ACK를 회수합니다."
         onClose={closeCommandModal}
       >
         <form
@@ -2084,6 +2111,13 @@ export function SensorsScreen() {
             event.preventDefault();
             if (!commandForm.sensorId) {
               setActionError("명령을 전송할 센서를 선택해 주세요.");
+              return;
+            }
+            if (
+              ["SET_THRESHOLD", "SET_SAMPLE_INTERVAL"].includes(commandForm.commandType)
+              && !commandForm.commandPayload.trim()
+            ) {
+              setActionError("선택한 명령에 필요한 payload를 입력해 주세요.");
               return;
             }
 
@@ -2095,7 +2129,7 @@ export function SensorsScreen() {
                     commandType: commandForm.commandType,
                     commandPayload: commandForm.commandPayload || null,
                   }),
-                `${commandForm.sensorId}에 ${commandForm.commandType} 명령을 전송했습니다.`,
+                `${commandForm.sensorId}의 ${commandForm.commandType} 명령을 대기열에 등록했습니다.`,
               );
 
               if (ok) {
@@ -2140,7 +2174,13 @@ export function SensorsScreen() {
                 commandPayload: event.target.value,
               }))
             }
-            placeholder='{"threshold": 80}'
+            placeholder={
+              commandForm.commandType === "SET_THRESHOLD"
+                ? "enterMm,exitMm (예: 700,850)"
+                : commandForm.commandType === "SET_SAMPLE_INTERVAL"
+                  ? "milliseconds (예: 1000)"
+                  : "이 명령은 payload가 필요하지 않습니다."
+            }
             rows={4}
             className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none dark:border-slate-800 dark:bg-slate-900"
           />
@@ -2420,7 +2460,7 @@ export function GatewaysScreen() {
     } finally {
       setCreateSubmitting(false);
     }
-  }, [createGateway, gatewayForm, resetGatewayForm, state]);
+  }, [gatewayForm, resetGatewayForm, state]);
 
   return (
     <ShellContent
@@ -3023,8 +3063,9 @@ export function AnalyticsScreen() {
   const state = useWorkspaceLoader();
   const spaces = state.workspace?.spaces ?? [];
   const focusSpace = spaces[0] ?? null;
-  const { history } = useSpaceHistoryState(state, focusSpace);
+  const { history, usage } = useSpaceHistoryState(state, focusSpace);
   const rankingSpaces = spaces
+    .filter(hasAvailableOccupancy)
     .slice()
     .sort((left, right) => right.occupancyRate - left.occupancyRate)
     .slice(0, 5);
@@ -3090,9 +3131,9 @@ export function AnalyticsScreen() {
               hint={`${formatPercent(state.workspace.summary.occupancyRate)} average live utilization`}
             />
             <MetricCard
-              label="Peak Hour Today"
+              label="24시간 최대 사용률"
               value={formatHourLabel(peakHistoryPoint?.label)}
-              hint={peakHistoryPoint ? `${Math.round(peakHistoryPoint.value)}% usage` : "No data"}
+              hint={peakHistoryPoint ? `${Math.round(peakHistoryPoint.value)}% measured usage` : "No data"}
               tone="orange"
             />
             <MetricCard
@@ -3113,7 +3154,7 @@ export function AnalyticsScreen() {
             <Panel>
               <div className="flex items-center justify-between">
                 <h2 className="text-lg font-bold text-slate-900 dark:text-white">
-                  Hourly Occupancy Trends
+                  시간대별 실측 사용률
                 </h2>
                 <button className="text-sm font-medium text-sky-600 dark:text-sky-300">
                   Download CSV
@@ -3122,6 +3163,10 @@ export function AnalyticsScreen() {
               <div className="mt-6">
                 <MiniBars points={history} />
               </div>
+              <p className="mt-4 text-xs text-slate-500 dark:text-slate-400">
+                관측 커버리지 {usage ? `${usage.coveragePercent.toFixed(1)}%` : "N/A"} · 미수집 구간은
+                빈자리로 추정하지 않습니다.
+              </p>
             </Panel>
 
             <Panel>
