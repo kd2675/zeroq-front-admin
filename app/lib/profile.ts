@@ -1,4 +1,5 @@
 import { postJson } from "@/app/lib/api";
+import { buildServiceAuthHeaders } from "@/app/lib/auth";
 
 export type ProfileSummary = {
   profileId: number;
@@ -19,7 +20,7 @@ export async function initializeProfile(
   const result = await postJson<ProfileSummary>(
     "/api/zeroq/v1/admin/profile/initialize",
     {},
-    { Authorization: `Bearer ${accessToken}` },
+    buildServiceAuthHeaders(accessToken),
   );
 
   if (!result.ok || !result.data) {

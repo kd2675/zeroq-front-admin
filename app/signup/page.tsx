@@ -3,8 +3,10 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
+
 import { signUpManager } from "@/app/lib/auth";
 
+/** `/signup` route. 서버 설정의 가입 비밀키가 있는 사용자만 MANAGER 계정 생성을 요청한다. */
 export default function SignUpPage() {
   const router = useRouter();
 
@@ -63,19 +65,19 @@ export default function SignUpPage() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-100 px-4 py-10">
-      <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
-        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-orange-600">
+    <main className="flex min-h-screen items-center justify-center bg-[var(--background)] px-4 py-10">
+      <section className="w-full max-w-md rounded-2xl border border-[var(--border)] bg-white p-8 shadow-[var(--shadow-md)] dark:bg-slate-950">
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-700 dark:text-blue-300">
           ZeroQ Admin
         </p>
-        <h1 className="mt-3 text-2xl font-bold text-slate-900">MANAGER 회원가입</h1>
-        <p className="mt-2 text-sm text-slate-600">
+        <h1 className="mt-3 text-2xl font-bold text-slate-900 dark:text-white">MANAGER 회원가입</h1>
+        <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
           이 페이지에서 생성되는 계정은 자동으로 <strong>MANAGER</strong> 권한으로 등록됩니다.
         </p>
 
-        <form onSubmit={handleSubmit} className="mt-6 space-y-4">
+        <form onSubmit={handleSubmit} className="mt-6 space-y-4" aria-busy={loading}>
           <div>
-            <label htmlFor="username" className="mb-1 block text-sm font-medium text-slate-700">
+            <label htmlFor="username" className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">
               아이디
             </label>
             <input
@@ -86,13 +88,13 @@ export default function SignUpPage() {
               autoComplete="username"
               value={username}
               onChange={(event) => setUsername(event.target.value)}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-orange-500"
+              className="min-h-11 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-blue-600 focus:ring-2 focus:ring-blue-600/10 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
               placeholder="manager01"
             />
           </div>
 
           <div>
-            <label htmlFor="email" className="mb-1 block text-sm font-medium text-slate-700">
+            <label htmlFor="email" className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">
               이메일
             </label>
             <input
@@ -103,13 +105,13 @@ export default function SignUpPage() {
               autoComplete="email"
               value={email}
               onChange={(event) => setEmail(event.target.value)}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-orange-500"
+              className="min-h-11 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-blue-600 focus:ring-2 focus:ring-blue-600/10 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
               placeholder="manager@zeroq.kr"
             />
           </div>
 
           <div>
-            <label htmlFor="password" className="mb-1 block text-sm font-medium text-slate-700">
+            <label htmlFor="password" className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">
               비밀번호
             </label>
             <input
@@ -121,13 +123,13 @@ export default function SignUpPage() {
               autoComplete="new-password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-orange-500"
+              className="min-h-11 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-blue-600 focus:ring-2 focus:ring-blue-600/10 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
               placeholder="8자 이상"
             />
           </div>
 
           <div>
-            <label htmlFor="passwordConfirm" className="mb-1 block text-sm font-medium text-slate-700">
+            <label htmlFor="passwordConfirm" className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">
               비밀번호 확인
             </label>
             <input
@@ -139,16 +141,16 @@ export default function SignUpPage() {
               autoComplete="new-password"
               value={passwordConfirm}
               onChange={(event) => setPasswordConfirm(event.target.value)}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-orange-500"
+              className="min-h-11 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-blue-600 focus:ring-2 focus:ring-blue-600/10 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
               placeholder="비밀번호 재입력"
             />
             {!isPasswordMatched ? (
-              <p className="mt-1 text-xs text-red-600">비밀번호가 일치하지 않습니다.</p>
+              <p className="mt-1 text-xs text-rose-600">비밀번호가 일치하지 않습니다.</p>
             ) : null}
           </div>
 
           <div>
-            <label htmlFor="signupSecret" className="mb-1 block text-sm font-medium text-slate-700">
+            <label htmlFor="signupSecret" className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">
               관리자 가입 비밀번호
             </label>
             <input
@@ -159,16 +161,16 @@ export default function SignUpPage() {
               maxLength={255}
               value={signupSecret}
               onChange={(event) => setSignupSecret(event.target.value)}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-orange-500"
+              className="min-h-11 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-blue-600 focus:ring-2 focus:ring-blue-600/10 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
               placeholder="발급받은 가입 코드 입력"
             />
-            <p className="mt-1 text-xs text-slate-500">
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
               운영자가 별도로 전달한 가입 코드가 있어야 MANAGER 계정을 만들 수 있습니다.
             </p>
           </div>
 
           {error ? (
-            <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">
+            <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700" role="alert">
               {error}
             </p>
           ) : null}
@@ -176,19 +178,19 @@ export default function SignUpPage() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full rounded-lg bg-orange-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-orange-700 disabled:cursor-not-allowed disabled:bg-orange-400"
+            className="min-h-11 w-full rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-wait disabled:opacity-60"
           >
             {loading ? "가입 중..." : "회원가입"}
           </button>
         </form>
 
-        <div className="mt-6 text-center text-sm text-slate-600">
+        <div className="mt-6 text-center text-sm text-slate-600 dark:text-slate-300">
           이미 계정이 있나요?{" "}
-          <Link href="/login" className="font-semibold text-orange-600 hover:underline">
+          <Link href="/login" className="font-semibold text-blue-700 hover:underline dark:text-blue-300">
             로그인으로 이동
           </Link>
         </div>
-      </div>
-    </div>
+      </section>
+    </main>
   );
 }

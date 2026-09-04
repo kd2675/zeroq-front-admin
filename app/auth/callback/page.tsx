@@ -7,6 +7,10 @@ import { ensureAccessToken, getUserFromToken, isManagerOrAdmin, logout } from "@
 import { consumePendingPath } from "@/app/lib/authRouting";
 import { initializeProfile } from "@/app/lib/profile";
 
+/**
+ * `/auth/callback` route. HttpOnly refresh cookie로 세션을 복구하고 MANAGER/ADMIN 역할과
+ * 관리자 프로필을 확인한 뒤 OAuth 시작 전 내부 관리 경로로 복귀한다.
+ */
 export default function AuthCallbackPage() {
   const router = useRouter();
 
@@ -68,11 +72,11 @@ export default function AuthCallbackPage() {
   }, [router]);
 
   return (
-    <main className="grid min-h-screen place-items-center bg-slate-100 px-4" aria-live="polite">
-      <section className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-sm">
-        <span className="mx-auto block size-8 animate-spin rounded-full border-2 border-slate-200 border-t-orange-600" aria-hidden="true" />
-        <h1 className="mt-5 text-xl font-bold text-slate-900">관리자 로그인을 마무리하고 있습니다</h1>
-        <p className="mt-2 text-sm text-slate-600">권한과 세션을 확인한 뒤 이전 화면으로 이동합니다.</p>
+    <main className="grid min-h-screen place-items-center bg-[var(--background)] px-4" aria-live="polite">
+      <section className="w-full max-w-md rounded-2xl border border-[var(--border)] bg-white p-8 text-center shadow-[var(--shadow-md)] dark:bg-slate-950">
+        <span className="mx-auto block size-8 animate-spin rounded-full border-2 border-slate-200 border-t-blue-600" aria-hidden="true" />
+        <h1 className="mt-5 text-xl font-bold text-slate-900 dark:text-white">관리자 로그인을 마무리하고 있습니다</h1>
+        <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">권한과 세션을 확인한 뒤 이전 화면으로 이동합니다.</p>
       </section>
     </main>
   );

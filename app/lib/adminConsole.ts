@@ -115,11 +115,12 @@ export type SensorRecord = {
   positionCode?: string;
   batteryPercent: number | null;
   lastHeartbeatAt?: string;
+  lastObservedAt?: string;
   lastSequenceNo?: number;
   spaceName: string;
   occupancyRate: number;
   gatewayId?: string | null;
-  detectionStatus: "Occupied" | "Vacant" | "Offline";
+  detectionStatus: "Occupied" | "Vacant" | "Offline" | "Unreliable" | "Not Monitored";
   signalStrength?: "Excellent" | "Good" | "Weak" | "Unknown" | null;
   locationLabel?: string | null;
   batteryLabel: string;
@@ -143,7 +144,7 @@ export type SpaceRecord = {
   recentTelemetry: TelemetryApi[];
   lowBatteryCount: number;
   offlineCount: number;
-  avgBattery: number;
+  avgBattery: number | null;
   trend: TrendPoint[];
   addressLabel: string;
 };
@@ -162,7 +163,7 @@ export type GatewayRecord = {
   firmwareVersion?: string | null;
   signalStrength?: "Excellent" | "Good" | "Weak" | "Unknown" | null;
   throughputMbps?: number | null;
-  status: "Online" | "Offline" | "Unknown";
+  status: "Online" | "Warning" | "Offline" | "Unknown";
   linkedBridge?: string | null;
   latencyMs?: number | null;
   packetLossPercent?: number | null;
@@ -196,11 +197,11 @@ export type LogRecord = {
 
 export type DashboardSummary = {
   occupiedNow: number;
-  occupancyRate: number;
+  occupancyRate: number | null;
   activeSensors: number;
   offlineSensors: number;
-  gatewayHealth: number;
-  peakRate: number;
+  gatewayHealth: number | null;
+  peakRate: number | null;
 };
 
 export type AdminWorkspace = {
@@ -294,16 +295,17 @@ function createEmptyWorkspace(): AdminWorkspace {
     logs: [],
     summary: {
       occupiedNow: 0,
-      occupancyRate: 0,
+      occupancyRate: null,
       activeSensors: 0,
       offlineSensors: 0,
-      gatewayHealth: 0,
-      peakRate: 0,
+      gatewayHealth: null,
+      peakRate: null,
     },
     generatedAt: new Date().toISOString(),
   };
 }
 
+/** 관리자 권한으로 통합 workspace를 조회하고 HTTP 상태별 운영 메시지로 변환한다. */
 export async function loadAdminWorkspace(
   headers: Record<string, string>,
 ): Promise<AdminWorkspace> {
@@ -329,6 +331,7 @@ export async function loadAdminWorkspace(
   throw new Error(adminResult.message ?? "관리자 워크스페이스를 불러오지 못했습니다.");
 }
 
+/** 현재 관리자 프로필의 임계값·보존·알림 설정을 조회한다. */
 export async function loadAdminConsoleSettings(
   headers: Record<string, string>,
 ): Promise<AdminConsoleSettings> {
@@ -344,6 +347,7 @@ export async function loadAdminConsoleSettings(
   throw new Error(result.message ?? "관리자 설정을 불러오지 못했습니다.");
 }
 
+/** 소유 관리자 프로필에 새 운영 공간을 생성한다. */
 export async function createZone(
   headers: Record<string, string>,
   payload: CreateZoneInput,
@@ -355,6 +359,7 @@ export async function createZone(
   throw new Error(result.message ?? "공간을 생성하지 못했습니다.");
 }
 
+/** 선택 공간에 새 gateway 원장을 등록한다. */
 export async function createGateway(
   headers: Record<string, string>,
   payload: CreateGatewayInput,
@@ -366,6 +371,7 @@ export async function createGateway(
   throw new Error(result.message ?? "게이트웨이를 생성하지 못했습니다.");
 }
 
+/** 검증된 관리자 설정 전체를 저장하고 저장 결과를 반환한다. */
 export async function updateAdminConsoleSettings(
   headers: Record<string, string>,
   payload: UpdateAdminConsoleSettingsInput,
@@ -383,18 +389,23 @@ export async function updateAdminConsoleSettings(
   throw new Error(result.message ?? "관리자 설정을 저장하지 못했습니다.");
 }
 
+/** 공간의 실제 raw telemetry 기반 사용량 집계와 시간 버킷을 조회한다. */
 export async function loadSpaceHistory(
   headers: Record<string, string>,
-  _space: SpaceRecord,
-): Promise<SensorUsageSummary | null> {
+  space: SpaceRecord,
+): Promise<SensorUsageSummary> {
   const result = await getJson<SensorUsageSummary>(
-    `/api/zeroq/v1/space-sensors/spaces/${_space.spaceId}/usage`,
+    `/api/zeroq/v1/space-sensors/spaces/${space.spaceId}/usage`,
     headers,
   );
 
-  return result.ok && result.data ? result.data : null;
+  if (result.ok && result.data) {
+    return result.data;
+  }
+  throw new Error(result.message ?? "센서 사용량을 불러오지 못했습니다.");
 }
 
+/** 센서 identity와 설치 후보 정보를 관리자 센서 원장에 등록한다. */
 export async function registerSensorDevice(
   headers: Record<string, string>,
   payload: SensorRegisterInput,
@@ -402,6 +413,7 @@ export async function registerSensorDevice(
   return postJson<SensorDeviceApi>("/api/zeroq/v1/space-sensors/devices", payload, headers);
 }
 
+/** 센서를 공간·gateway에 배치하고 ACTIVE 상태로 전환한다. */
 export async function installSensorDevice(
   headers: Record<string, string>,
   sensorId: string,
@@ -415,6 +427,7 @@ export async function installSensorDevice(
   );
 }
 
+/** 센서 종속 raw 데이터와 관리자 원장을 삭제하는 API를 호출한다. */
 export async function deleteSensorDevice(
   headers: Record<string, string>,
   sensorId: string,
@@ -422,6 +435,7 @@ export async function deleteSensorDevice(
   return deleteJson<null>(`/api/zeroq/v1/space-sensors/devices/${sensorId}`, headers);
 }
 
+/** 센서 실행 대기 명령을 생성한다. 실제 전달 여부는 command 상태로 추적한다. */
 export async function createSensorCommand(
   headers: Record<string, string>,
   payload: SensorCommandInput,

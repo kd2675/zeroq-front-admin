@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import {
-  startTransition,
   useCallback,
   useDeferredValue,
   useEffect,
@@ -58,12 +57,17 @@ const GATEWAY_ROLES = ["EDGE", "HUB"];
 
 type WorkspaceState = ReturnType<typeof useWorkspaceLoader>;
 
-function formatPercent(value: number) {
-  return `${value.toFixed(1)}%`;
+function formatPercent(value: number | null | undefined) {
+  return value === null || value === undefined ? "확인 불가" : `${value.toFixed(1)}%`;
 }
 
 function formatNumber(value: number) {
   return new Intl.NumberFormat("ko-KR").format(Math.round(value));
+}
+
+function parseApiDate(value: string) {
+  const hasTimeZone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(value);
+  return new Date(hasTimeZone ? value : `${value}Z`);
 }
 
 function formatDateTime(value?: string) {
@@ -71,7 +75,7 @@ function formatDateTime(value?: string) {
     return "-";
   }
 
-  const date = new Date(value);
+  const date = parseApiDate(value);
   if (Number.isNaN(date.getTime())) {
     return value;
   }
@@ -86,10 +90,10 @@ function formatDateTime(value?: string) {
 
 function formatRelative(value?: string) {
   if (!value) {
-    return "방금 전";
+    return "수신 기록 없음";
   }
 
-  const target = new Date(value).getTime();
+  const target = parseApiDate(value).getTime();
   if (Number.isNaN(target)) {
     return value;
   }
@@ -112,10 +116,10 @@ function formatRelative(value?: string) {
 
 function formatShortTime(value?: string) {
   if (!value) {
-    return "N/A";
+    return "확인 불가";
   }
 
-  const date = new Date(value);
+  const date = parseApiDate(value);
   if (Number.isNaN(date.getTime())) {
     return value;
   }
@@ -153,7 +157,7 @@ function hasAvailableOccupancy(space: SpaceRecord) {
 }
 
 function formatSpaceOccupancy(space: SpaceRecord) {
-  return hasAvailableOccupancy(space) ? formatPercent(space.occupancyRate) : "N/A";
+  return hasAvailableOccupancy(space) ? formatPercent(space.occupancyRate) : "확인 불가";
 }
 
 function searchField(
@@ -162,14 +166,14 @@ function searchField(
   placeholder: string,
 ) {
   return (
-    <label className="flex min-w-[280px] items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm dark:border-slate-800 dark:bg-slate-900/80 dark:text-slate-200">
+    <label className="flex min-h-11 w-full min-w-0 items-center gap-3 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700 shadow-sm sm:min-w-[280px] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+      <span className="sr-only">{placeholder}</span>
       <Icon name="search" className="size-4 text-slate-400" />
       <input
+        type="search"
+        aria-label={placeholder}
         value={value}
-        onChange={(event) => {
-          const nextValue = event.target.value;
-          startTransition(() => onChange(nextValue));
-        }}
+        onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
         className="w-full bg-transparent outline-none placeholder:text-slate-400 dark:placeholder:text-slate-500"
       />
@@ -179,7 +183,7 @@ function searchField(
 
 function toolButton(
   label: string,
-  onClick?: () => void,
+  onClick: () => void,
   tone: "default" | "primary" = "default",
   disabled = false,
 ) {
@@ -188,10 +192,11 @@ function toolButton(
       type="button"
       onClick={onClick}
       disabled={disabled}
+      title={disabled ? "필요한 데이터가 준비되거나 현재 작업이 끝난 뒤 다시 시도해 주세요." : undefined}
       className={cn(
-        "rounded-xl border px-4 py-3 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60",
+        "min-h-11 rounded-lg border px-4 py-2 text-sm font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-60",
         tone === "primary"
-          ? "border-sky-500/20 bg-[#2b8cee] text-white hover:bg-[#2476ca]"
+          ? "border-blue-600 bg-blue-600 text-white hover:bg-blue-700"
           : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800",
       )}
     >
@@ -200,40 +205,7 @@ function toolButton(
   );
 }
 
-function parsePositionCode(positionCode?: string) {
-  if (!positionCode) {
-    return null;
-  }
-
-  const match = /PX(\d{1,3})_PY(\d{1,3})/i.exec(positionCode);
-  if (!match) {
-    return null;
-  }
-
-  const x = Number(match[1]);
-  const y = Number(match[2]);
-  if (!Number.isFinite(x) || !Number.isFinite(y)) {
-    return null;
-  }
-
-  return {
-    x: Math.min(Math.max(x, 8), 92),
-    y: Math.min(Math.max(y, 10), 90),
-  };
-}
-
-function autoPosition(index: number, total: number) {
-  const columns = Math.max(2, Math.ceil(Math.sqrt(Math.max(total, 1))));
-  const row = Math.floor(index / columns);
-  const col = index % columns;
-  const rows = Math.max(1, Math.ceil(total / columns));
-
-  return {
-    x: 14 + (col / Math.max(columns - 1, 1)) * 72,
-    y: 18 + (row / Math.max(rows - 1, 1)) * 56,
-  };
-}
-
+/** access token을 확보한 뒤 관리자 workspace를 불러오고 재시도 가능한 화면 상태로 변환한다. */
 function useWorkspaceLoader() {
   const access = useAdminAccess();
   const { isReady, resolveAuthHeaders } = access;
@@ -249,13 +221,12 @@ function useWorkspaceLoader() {
     setLoading(true);
     setError(null);
 
-    const headers = await resolveAuthHeaders();
-    if (!headers) {
-      setLoading(false);
-      return;
-    }
-
     try {
+      const headers = await resolveAuthHeaders();
+      if (!headers) {
+        setError("관리자 데이터를 불러오기 위한 인증 세션이 없습니다.");
+        return;
+      }
       const nextWorkspace = await loadAdminWorkspace(headers);
       setWorkspace(nextWorkspace);
     } catch (loadError) {
@@ -283,13 +254,16 @@ function useWorkspaceLoader() {
   };
 }
 
+/** 선택 공간이 바뀔 때 실측 sensor usage를 조회하고 이전 요청 결과의 역전 반영을 막는다. */
 function useSpaceHistoryState(state: WorkspaceState, space: SpaceRecord | null) {
   const { isReady, resolveAuthHeaders } = state;
   const [history, setHistory] = useState<Array<{ label: string; value: number }>>([]);
   const [usage, setUsage] = useState<SensorUsageSummary | null>(null);
+  const [loadedSpaceId, setLoadedSpaceId] = useState<number | null>(null);
+  const [historyError, setHistoryError] = useState<string | null>(null);
   const toHistoryPoints = useCallback((summary: SensorUsageSummary | null) => {
     return (summary?.buckets ?? []).filter((bucket) => bucket.observedSeconds > 0).map((bucket) => {
-      const utcDate = new Date(`${bucket.from}Z`);
+      const utcDate = parseApiDate(bucket.from);
       const label = Number.isNaN(utcDate.getTime())
         ? "--"
         : new Intl.DateTimeFormat("ko-KR", {
@@ -311,18 +285,35 @@ function useSpaceHistoryState(state: WorkspaceState, space: SpaceRecord | null) 
     }
 
     void (async () => {
-      const headers = await resolveAuthHeaders();
-      if (!headers || cancelled) {
-        return;
-      }
+      setHistoryError(null);
+      try {
+        const headers = await resolveAuthHeaders();
+        if (cancelled) {
+          return;
+        }
+        if (!headers) {
+          throw new Error("센서 사용량 조회에 필요한 인증 세션이 없습니다.");
+        }
 
-      const summary = await loadSpaceHistory(headers, space);
-      if (cancelled) {
-        return;
-      }
+        const summary = await loadSpaceHistory(headers, space);
+        if (cancelled) {
+          return;
+        }
 
-      setUsage(summary);
-      setHistory(toHistoryPoints(summary));
+        setUsage(summary);
+        setHistory(toHistoryPoints(summary));
+      } catch (loadError) {
+        if (cancelled) {
+          return;
+        }
+        setUsage(null);
+        setHistory([]);
+        setHistoryError(loadError instanceof Error ? loadError.message : "센서 사용량을 불러오지 못했습니다.");
+      } finally {
+        if (!cancelled) {
+          setLoadedSpaceId(space.spaceId);
+        }
+      }
     })();
 
     return () => {
@@ -335,19 +326,34 @@ function useSpaceHistoryState(state: WorkspaceState, space: SpaceRecord | null) 
       return;
     }
 
-    const headers = await resolveAuthHeaders();
-    if (!headers) {
-      return;
-    }
+    setHistoryError(null);
+    try {
+      const headers = await resolveAuthHeaders();
+      if (!headers) {
+        throw new Error("센서 사용량 조회에 필요한 인증 세션이 없습니다.");
+      }
 
-    const summary = await loadSpaceHistory(headers, space);
-    setUsage(summary);
-    setHistory(toHistoryPoints(summary));
+      const summary = await loadSpaceHistory(headers, space);
+      setUsage(summary);
+      setHistory(toHistoryPoints(summary));
+    } catch (loadError) {
+      setUsage(null);
+      setHistory([]);
+      setHistoryError(loadError instanceof Error ? loadError.message : "센서 사용량을 불러오지 못했습니다.");
+    } finally {
+      setLoadedSpaceId(space.spaceId);
+    }
   }, [isReady, resolveAuthHeaders, space, toHistoryPoints]);
 
-  const visibleHistory = useMemo(() => (space ? history : []), [history, space]);
+  const hasCurrentSpaceData = isReady && space !== null && loadedSpaceId === space.spaceId;
+  const visibleHistory = useMemo(
+    () => (hasCurrentSpaceData ? history : []),
+    [hasCurrentSpaceData, history],
+  );
+  const visibleUsage = hasCurrentSpaceData ? usage : null;
+  const visibleError = hasCurrentSpaceData ? historyError : null;
 
-  return { history: visibleHistory, usage, reloadHistory };
+  return { history: visibleHistory, usage: visibleUsage, error: visibleError, reloadHistory };
 }
 
 function NoticeStrip({
@@ -364,12 +370,12 @@ function NoticeStrip({
   return (
     <div className="space-y-2">
       {notice ? (
-        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:border-emerald-500/20 dark:bg-emerald-500/12 dark:text-emerald-200">
+        <div role="status" aria-live="polite" className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700 dark:border-emerald-500/20 dark:bg-emerald-500/12 dark:text-emerald-200">
           {notice}
         </div>
       ) : null}
       {error ? (
-        <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-500/20 dark:bg-rose-500/12 dark:text-rose-200">
+        <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700 dark:border-rose-500/20 dark:bg-rose-500/12 dark:text-rose-200">
           {error}
         </div>
       ) : null}
@@ -402,28 +408,53 @@ function ShellContent({
       title={title}
       subtitle={subtitle}
       user={state.user}
-      toolbar={toolbar}
+      toolbar={
+        <>
+          {toolbar}
+          {toolButton("데이터 새로고침", () => void state.reload())}
+        </>
+      }
       onLogout={() => void state.signOut()}
     >
-      {children}
+      {state.error && state.workspace ? (
+        <NoticeStrip error={`${state.error} 현재 화면에는 마지막으로 불러온 데이터를 표시합니다.`} />
+      ) : null}
+      {!state.workspace ? (
+        <Panel className="grid min-h-64 place-items-center text-center" >
+          <div className="max-w-md">
+            <h2 className="text-lg font-bold text-slate-900 dark:text-white">운영 데이터를 불러오지 못했습니다.</h2>
+            <p role="alert" className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">
+              {state.error ?? "잠시 후 다시 시도해 주세요."}
+            </p>
+            <button type="button" onClick={() => void state.reload()} className="mt-5 min-h-11 rounded-lg bg-blue-600 px-4 text-sm font-bold text-white hover:bg-blue-700">
+              다시 불러오기
+            </button>
+          </div>
+        </Panel>
+      ) : children}
     </AdminShell>
   );
 }
 
 function occupancyStateLabel(space: SpaceRecord) {
   if (!hasAvailableOccupancy(space)) {
-    return "Unknown";
+    return "확인 불가";
   }
   if (space.occupancyRate >= 90) {
-    return "Critical";
+    return "매우 혼잡";
   }
-  if (space.offlineCount > 0 || space.lowBatteryCount > 0 || space.occupancyRate >= 75) {
-    return "Maintenance";
+  if (space.offlineCount > 0
+      || space.lowBatteryCount > 0
+      || space.sensors.some((sensor) => sensor.detectionStatus === "Unreliable")) {
+    return "점검 필요";
+  }
+  if (space.occupancyRate >= 75) {
+    return "혼잡";
   }
   if (space.occupancyRate >= 45) {
-    return "Active";
+    return "보통";
   }
-  return "Available";
+  return "여유";
 }
 
 function occupancyStateTone(space: SpaceRecord) {
@@ -433,18 +464,21 @@ function occupancyStateTone(space: SpaceRecord) {
   if (space.occupancyRate >= 90) {
     return "critical" as const;
   }
-  if (space.offlineCount > 0 || space.lowBatteryCount > 0 || space.occupancyRate >= 75) {
+  if (space.offlineCount > 0
+      || space.lowBatteryCount > 0
+      || space.sensors.some((sensor) => sensor.detectionStatus === "Unreliable")
+      || space.occupancyRate >= 75) {
     return "warning" as const;
   }
   if (space.occupancyRate >= 45) {
-    return "success" as const;
+    return "info" as const;
   }
-  return "info" as const;
+  return "success" as const;
 }
 
 function formatHourLabel(label?: string) {
   if (!label) {
-    return "N/A";
+    return "확인 불가";
   }
   if (label.includes(":")) {
     return label;
@@ -459,23 +493,34 @@ function gatewayTone(status: GatewayRecord["status"]) {
   if (status === "Offline") {
     return "critical" as const;
   }
+  if (status === "Warning") {
+    return "warning" as const;
+  }
   return "neutral" as const;
 }
 
 function gatewayLoadPercent(gateway: GatewayRecord) {
-  const capacity = gateway.sensorCapacity ?? gateway.connectedSensors.length ?? 0;
+  const capacity = gateway.sensorCapacity;
   const load = gateway.currentSensorLoad ?? gateway.connectedSensors.length;
   if (!capacity || capacity <= 0) {
-    return 0;
+    return null;
   }
-  return Math.max(0, Math.min(100, Math.round((load / capacity) * 100)));
+  return Math.max(0, Math.round((load / capacity) * 100));
+}
+
+function formatGatewayLoadPercent(gateway: GatewayRecord) {
+  const loadPercent = gatewayLoadPercent(gateway);
+  return loadPercent == null ? "확인 불가" : `${loadPercent}%`;
 }
 
 function gatewayDisplayStatus(gateway: GatewayRecord) {
   if (gateway.status === "Offline") {
     return "Offline" as const;
   }
-  if (gatewayLoadPercent(gateway) >= 90 || (gateway.packetLossPercent ?? 0) >= 5) {
+  if (gateway.status === "Unknown") {
+    return "Unknown" as const;
+  }
+  if (gateway.status === "Warning") {
     return "Warning" as const;
   }
   return "Active" as const;
@@ -489,7 +534,21 @@ function gatewayDisplayTone(gateway: GatewayRecord) {
   if (status === "Warning") {
     return "warning" as const;
   }
-  return "critical" as const;
+  return status === "Offline" ? "critical" as const : "neutral" as const;
+}
+
+function gatewayDisplayLabel(gateway: GatewayRecord) {
+  const status = gatewayDisplayStatus(gateway);
+  if (status === "Active") {
+    return "정상";
+  }
+  if (status === "Warning") {
+    return "주의";
+  }
+  if (status === "Offline") {
+    return "오프라인";
+  }
+  return "확인 불가";
 }
 
 function severityCardStyle(severity: Severity) {
@@ -502,9 +561,119 @@ function severityCardStyle(severity: Severity) {
   if (severity === "success") {
     return "border-emerald-200 bg-emerald-50 dark:border-emerald-500/20 dark:bg-emerald-500/10";
   }
-  return "border-sky-200 bg-sky-50 dark:border-sky-500/20 dark:bg-sky-500/10";
+  return "border-blue-200 bg-blue-50 dark:border-blue-500/20 dark:bg-blue-500/10";
 }
 
+function severityLabel(severity: Severity) {
+  if (severity === "critical") {
+    return "긴급";
+  }
+  if (severity === "warning") {
+    return "주의";
+  }
+  if (severity === "success") {
+    return "정상";
+  }
+  return "정보";
+}
+
+function sensorLifecycleLabel(status: string) {
+  if (status === "ACTIVE") {
+    return "정상 운영";
+  }
+  if (status === "INACTIVE") {
+    return "비활성";
+  }
+  if (status === "MAINTENANCE") {
+    return "점검 중";
+  }
+  return status;
+}
+
+function detectionStatusLabel(status: string) {
+  if (status === "Occupied") {
+    return "사용 중";
+  }
+  if (status === "Vacant") {
+    return "비어 있음";
+  }
+  if (status === "Unreliable") {
+    return "측정 불신";
+  }
+  if (status === "Offline") {
+    return "오프라인";
+  }
+  if (status === "Not Monitored") {
+    return "미관측";
+  }
+  return status;
+}
+
+function detectionStatusTone(status: string) {
+  if (status === "Offline") {
+    return "critical" as const;
+  }
+  if (status === "Unreliable") {
+    return "warning" as const;
+  }
+  if (status === "Occupied" || status === "Vacant") {
+    return "success" as const;
+  }
+  return "neutral" as const;
+}
+
+function operationalStatusLabel(status?: string | null) {
+  if (!status) {
+    return null;
+  }
+  if (status === "ACTIVE") {
+    return "운영 중";
+  }
+  if (status === "STAGING") {
+    return "준비 중";
+  }
+  if (status === "MAINTENANCE") {
+    return "점검 중";
+  }
+  if (status === "CRITICAL") {
+    return "긴급 점검";
+  }
+  if (status === "CLOSED") {
+    return "운영 종료";
+  }
+  return status;
+}
+
+function operationalStatusTone(status?: string | null) {
+  if (status === "CRITICAL") {
+    return "critical" as const;
+  }
+  if (status === "MAINTENANCE" || status === "STAGING") {
+    return "warning" as const;
+  }
+  if (status === "ACTIVE") {
+    return "success" as const;
+  }
+  return "neutral" as const;
+}
+
+function telemetryQualityLabel(status?: string | null) {
+  if (status === "VALID") {
+    return "정상";
+  }
+  if (status === "OUTLIER") {
+    return "이상치";
+  }
+  if (status === "STALE") {
+    return "지연";
+  }
+  if (status === "DUPLICATE") {
+    return "중복";
+  }
+  return "확인 불가";
+}
+
+/** 전체 공간·센서·gateway 상태와 우선 대응 경보를 요약하는 관리자 홈 화면이다. */
 export function DashboardScreen() {
   const state = useWorkspaceLoader();
   const [query, setQuery] = useState("");
@@ -524,6 +693,11 @@ export function DashboardScreen() {
   }, [deferredQuery, state.workspace?.spaces]);
 
   const topSpace = visibleSpaces[0] ?? null;
+  const {
+    history: dashboardHistory,
+    usage: dashboardUsage,
+    error: dashboardHistoryError,
+  } = useSpaceHistoryState(state, topSpace);
   const gateways = useMemo(() => state.workspace?.gateways ?? [], [state.workspace?.gateways]);
   const alerts = state.workspace?.alerts ?? [];
   const logs = state.workspace?.logs ?? [];
@@ -533,85 +707,123 @@ export function DashboardScreen() {
     .sort((left, right) => right.occupancyRate - left.occupancyRate)
     .slice(0, 4);
   const topLoadedGateways = useMemo(() => {
-    const ranked = gateways
-      .slice()
-      .sort((left, right) => right.connectedSensors.length - left.connectedSensors.length)
+    return gateways
+      .flatMap((gateway) => {
+        const loadPercent = gatewayLoadPercent(gateway);
+        return loadPercent == null ? [] : [{ gatewayId: gateway.gatewayId, loadPercent }];
+      })
+      .sort((left, right) => right.loadPercent - left.loadPercent)
       .slice(0, 5);
-    const max = Math.max(...ranked.map((gateway) => gateway.connectedSensors.length), 1);
-    return ranked.map((gateway) => ({
-      gatewayId: gateway.gatewayId,
-      connectedSensors: gateway.connectedSensors.length,
-      height: Math.max(18, Math.round((gateway.connectedSensors.length / max) * 100)),
-    }));
   }, [gateways]);
-  const criticalAlerts = alerts.filter((alert) => alert.severity === "critical").slice(0, 3);
+  const highestLoadedGateway = topLoadedGateways[0] ?? null;
+  const criticalAlertCount = alerts.filter((alert) => alert.severity === "critical").length;
   const warningAlerts = alerts.filter((alert) => alert.severity === "warning").length;
+  const priorityAlerts = alerts
+    .slice()
+    .sort((left, right) => {
+      const rank = { critical: 0, warning: 1, info: 2, success: 3 };
+      return rank[left.severity] - rank[right.severity];
+    })
+    .slice(0, 3);
 
   return (
     <ShellContent
       activeKey="dashboard"
-      title="Facility Overview"
-      subtitle="Real-time aggregated occupancy and operational system health."
+      title="운영 현황"
+      subtitle="최근 점유 데이터와 장비 상태를 확인하고 필요한 조치를 우선순위대로 처리합니다."
       state={state}
-      toolbar={
-        <>
-          {searchField(query, setQuery, "Search facilities, sensors or logs...")}
-          {toolButton("Export Report")}
-        </>
-      }
+      toolbar={searchField(query, setQuery, "공간 이름 또는 주소 검색")}
     >
       {state.workspace && state.workspace.spaces.length > 0 ? (
         <div className="space-y-6">
           <div className="grid gap-4 lg:grid-cols-4">
             <MetricCard
-              label="Global Occupancy"
+              label="전체 점유율"
               value={formatPercent(state.workspace.summary.occupancyRate)}
-              hint={`Currently ${formatNumber(state.workspace.summary.occupiedNow)} people in-facility`}
+              hint={`현재 ${formatNumber(state.workspace.summary.occupiedNow)}개 센서 위치가 사용 중입니다.`}
             />
             <MetricCard
-              label="Active Gateways"
+              label="정상 게이트웨이"
               value={`${formatNumber(gateways.filter((gateway) => gateway.status === "Online").length)}/${formatNumber(gateways.length)}`}
-              hint={`${formatNumber(gateways.filter((gateway) => gateway.status !== "Online").length)} nodes currently unreachable`}
+              hint={`${formatNumber(gateways.filter((gateway) => gateway.status !== "Online").length)}개는 주의·오프라인·확인 불가 상태입니다.`}
               tone="orange"
             />
             <MetricCard
-              label="Pending Alerts"
+              label="확인할 알림"
               value={formatNumber(alerts.length)}
-              hint={`${criticalAlerts.length} critical, ${warningAlerts} maintenance`}
+              hint={`긴급 ${criticalAlertCount}개 · 주의 ${warningAlerts}개`}
               tone="rose"
             />
             <MetricCard
-              label="Gateway Availability"
+              label="게이트웨이 가용률"
               value={formatPercent(state.workspace.summary.gatewayHealth)}
-              hint="Registered gateways currently online"
+              hint="등록된 게이트웨이 중 현재 온라인인 비율입니다."
               tone="emerald"
             />
           </div>
+
+          {query.trim() && visibleSpaces.length === 0 ? (
+            <Panel className="border-amber-200 bg-amber-50 dark:border-amber-500/20 dark:bg-amber-500/10">
+              <p className="text-sm font-bold text-amber-900 dark:text-amber-200">검색 조건에 맞는 공간이 없습니다.</p>
+              <p className="mt-1 text-sm text-amber-800 dark:text-amber-300">공간 이름이나 주소를 바꿔 검색해 주세요. 상단의 전체 지표와 알림은 검색과 관계없이 유지됩니다.</p>
+            </Panel>
+          ) : null}
+
+          <Panel className={priorityAlerts.length > 0 ? "border-amber-200 dark:border-amber-500/30" : "border-emerald-200 dark:border-emerald-500/30"}>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-bold text-slate-900 dark:text-white">우선 확인 항목</h2>
+                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">장비와 공간 상태에서 현재 조치가 필요한 항목입니다.</p>
+              </div>
+              <Link href="/logs" className="text-sm font-bold text-blue-700 underline-offset-4 hover:underline dark:text-blue-300">
+                전체 이벤트 로그
+              </Link>
+            </div>
+            {priorityAlerts.length > 0 ? (
+              <div className="mt-4 divide-y divide-slate-200 dark:divide-slate-800">
+                {priorityAlerts.map((alert) => (
+                  <div key={alert.id} className="grid gap-2 py-3 first:pt-0 sm:grid-cols-[auto_1fr_auto] sm:items-start sm:gap-3">
+                    <StatusBadge tone={alert.severity}>{severityLabel(alert.severity)}</StatusBadge>
+                    <div>
+                      <p className="text-sm font-bold text-slate-900 dark:text-white">{alert.title}</p>
+                      <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">{alert.description}</p>
+                    </div>
+                    <span className="text-xs text-slate-500 dark:text-slate-400">{formatRelative(alert.createdAt)}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-4 text-sm font-medium text-emerald-700 dark:text-emerald-300">현재 불러온 데이터에는 별도 알림이 없습니다.</p>
+            )}
+          </Panel>
 
           <div className="grid gap-6 lg:grid-cols-3">
             <Panel className="lg:col-span-2">
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <h2 className="text-lg font-bold text-slate-900 dark:text-white">
-                    Occupancy Trend
+                    시간대별 점유율
                   </h2>
                   <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                    Total facility load over the last 24 hours
+                    {topSpace ? `${topSpace.name}의 실제 관측 구간만 집계합니다.` : "표시할 공간이 없습니다."}
                   </p>
                 </div>
                 <div className="rounded-lg bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                  Last 24 Hours
+                  {dashboardUsage ? `관측 범위 ${dashboardUsage.coveragePercent.toFixed(1)}%` : "관측 데이터 없음"}
                 </div>
               </div>
               <div className="mt-6">
-                <MiniBars points={topSpace?.trend ?? []} />
+                <MiniBars points={dashboardHistory} />
               </div>
+              {dashboardHistoryError ? (
+                <p className="mt-3 text-xs text-rose-600 dark:text-rose-300">{dashboardHistoryError}</p>
+              ) : null}
             </Panel>
 
             <Panel>
-              <h2 className="text-lg font-bold text-slate-900 dark:text-white">Peak Zones</h2>
+              <h2 className="text-lg font-bold text-slate-900 dark:text-white">혼잡 공간</h2>
               <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                Areas under the highest live occupancy pressure
+                신뢰 가능한 최근 점유율이 높은 순서입니다.
               </p>
               <div className="mt-6 space-y-5">
                 {peakZones.map((space) => (
@@ -620,7 +832,7 @@ export function DashboardScreen() {
                       <span className="font-medium text-slate-800 dark:text-slate-100">
                         {space.name}
                       </span>
-                      <span className="font-bold text-sky-600 dark:text-sky-300">
+                      <span className="font-bold text-blue-600 dark:text-blue-300">
                         {formatSpaceOccupancy(space)}
                       </span>
                     </div>
@@ -631,10 +843,10 @@ export function DashboardScreen() {
                           space.occupancyRate >= 90
                             ? "bg-rose-500"
                             : space.occupancyRate >= 75
-                              ? "bg-sky-500"
+                              ? "bg-blue-500"
                               : "bg-slate-400",
                         )}
-                        style={{ width: `${Math.max(space.occupancyRate, 8)}%` }}
+                        style={{ width: `${Math.min(Math.max(space.occupancyRate, 0), 100)}%` }}
                       />
                     </div>
                   </Link>
@@ -645,104 +857,63 @@ export function DashboardScreen() {
                   href="/areas"
                   className="block rounded-xl border border-slate-200 px-4 py-3 text-center text-sm font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-800 dark:text-slate-200 dark:hover:bg-slate-800"
                 >
-                  View All Zones
+                  모든 공간 보기
                 </Link>
               </div>
             </Panel>
           </div>
 
-          <div className="grid gap-6 lg:grid-cols-2">
+          <div>
             <Panel>
               <div className="flex items-center justify-between">
                 <h2 className="text-lg font-bold text-slate-900 dark:text-white">
-                  Gateway Sensor Load
+                  게이트웨이 센서 수용량
                 </h2>
                 <span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                  Registered Only
+                  수용량 대비
                 </span>
               </div>
-              <div className="mt-6 grid h-[180px] grid-cols-5 items-end gap-4">
-                {topLoadedGateways.map((gateway) => (
-                  <div key={gateway.gatewayId} className="flex flex-col items-center gap-2">
-                    <div
-                      className={cn(
-                        "w-full rounded-t-lg",
-                        gateway.height >= 90
-                          ? "border-t-2 border-rose-500 bg-rose-500/20 dark:bg-rose-500/12"
-                          : "bg-sky-500/20 dark:bg-sky-500/12",
-                      )}
-                      style={{ height: `${gateway.height}%` }}
-                    />
-                    <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
-                      {gateway.gatewayId}
-                    </span>
-                  </div>
-                ))}
-              </div>
-              <div className="mt-4 flex items-center gap-3 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700 dark:border-rose-500/20 dark:bg-rose-500/10 dark:text-rose-300">
+              {topLoadedGateways.length > 0 ? (
+                <div className="mt-6 grid h-[180px] grid-cols-5 items-end gap-4">
+                  {topLoadedGateways.map((gateway) => (
+                    <div key={gateway.gatewayId} className="flex h-full flex-col items-center justify-end gap-2">
+                      <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">
+                        {gateway.loadPercent}%
+                      </span>
+                      <div
+                        className={cn(
+                          "w-full rounded-t-lg",
+                          gateway.loadPercent > 100
+                            ? "border-t-2 border-amber-500 bg-amber-500/20 dark:bg-amber-500/12"
+                            : "bg-blue-500/20 dark:bg-blue-500/12",
+                        )}
+                        style={{ height: `${Math.min(gateway.loadPercent, 100)}%` }}
+                      />
+                      <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
+                        {gateway.gatewayId}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="mt-6 grid h-[180px] place-items-center text-sm text-slate-500 dark:text-slate-400">
+                  등록된 센서 용량 정보가 없습니다.
+                </div>
+              )}
+              <div
+                className={cn(
+                  "mt-4 flex items-center gap-3 rounded-xl border p-3 text-xs",
+                  highestLoadedGateway && highestLoadedGateway.loadPercent > 100
+                    ? "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-300"
+                    : "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-300",
+                )}
+              >
                 <Icon name="alert" className="size-4 shrink-0" />
                 <p>
-                  {topLoadedGateways
-                    .slice()
-                    .sort((left, right) => right.height - left.height)[0]?.gatewayId ?? "No gateway"}{" "}
-                  gateway currently manages the most mapped sensors.
+                  {highestLoadedGateway
+                    ? `${highestLoadedGateway.gatewayId}의 등록 센서 비율이 ${highestLoadedGateway.loadPercent}%로 가장 높습니다.`
+                    : "등록 센서 수와 수용량이 모두 있는 게이트웨이가 없습니다."}
                 </p>
-              </div>
-            </Panel>
-
-            <Panel className="overflow-hidden p-0">
-              <div className="flex items-center justify-between border-b border-slate-200 px-6 py-5 dark:border-slate-800">
-                <h2 className="text-lg font-bold text-slate-900 dark:text-white">
-                  High Priority Alerts
-                </h2>
-                <span className="rounded-full bg-rose-500 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-white">
-                  {criticalAlerts.length} critical
-                </span>
-              </div>
-              <div className="divide-y divide-slate-100 dark:divide-slate-800">
-                {(criticalAlerts.length > 0 ? criticalAlerts : alerts.slice(0, 3)).map((alert) => (
-                  <div
-                    key={alert.id}
-                    className={cn(
-                      "flex items-start gap-4 px-6 py-4",
-                      alert.severity === "critical"
-                        ? "bg-rose-50/70 dark:bg-rose-500/6"
-                        : "",
-                    )}
-                  >
-                    <div
-                      className={cn(
-                        "rounded-xl p-2",
-                        alert.severity === "critical"
-                          ? "bg-rose-500/15 text-rose-500"
-                          : "bg-amber-500/15 text-amber-500",
-                      )}
-                    >
-                      <Icon name="alert" className="size-4" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-start justify-between gap-3">
-                        <p className="text-sm font-bold text-slate-900 dark:text-white">
-                          {alert.title}
-                        </p>
-                        <span className="shrink-0 text-[10px] text-slate-400">
-                          {formatRelative(alert.createdAt)}
-                        </span>
-                      </div>
-                      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                        {alert.description}
-                      </p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <div className="bg-slate-50 px-6 py-4 text-center dark:bg-slate-800/35">
-                <Link
-                  href="/logs"
-                  className="text-sm font-bold text-sky-600 hover:underline dark:text-sky-300"
-                >
-                  See All Incident Reports
-                </Link>
               </div>
             </Panel>
           </div>
@@ -751,22 +922,23 @@ export function DashboardScreen() {
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-lg font-bold text-slate-900 dark:text-white">
-                  Operational Snapshot
+                  최근 운영 이벤트
                 </h2>
                 <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                  Recent console activity across spaces and devices
+                  공간과 장비에서 최근 생성된 이벤트입니다.
                 </p>
               </div>
-              <StatusBadge tone="info">{logs.length} events</StatusBadge>
+              <StatusBadge tone="info">{logs.length}건</StatusBadge>
             </div>
-            <div className="mt-5 grid gap-3 md:grid-cols-3">
-              {logs.slice(0, 3).map((log) => (
+            {logs.length > 0 ? (
+              <div className="mt-5 grid gap-3 md:grid-cols-3">
+                {logs.slice(0, 3).map((log) => (
                 <div
                   key={log.id}
                   className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-800/35"
                 >
                   <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">
-                    {log.severity}
+                    {severityLabel(log.severity)}
                   </p>
                   <p className="mt-2 font-semibold text-slate-900 dark:text-white">
                     {log.eventType}
@@ -775,8 +947,11 @@ export function DashboardScreen() {
                     {log.details}
                   </p>
                 </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-5 text-sm text-slate-500 dark:text-slate-400">최근 운영 이벤트가 없습니다.</p>
+            )}
           </Panel>
         </div>
       ) : (
@@ -789,6 +964,7 @@ export function DashboardScreen() {
   );
 }
 
+/** 소유 공간 목록을 탐색하고 새 공간을 등록하는 운영 화면이다. */
 export function AreaManagementScreen() {
   const state = useWorkspaceLoader();
   const [query, setQuery] = useState("");
@@ -821,9 +997,15 @@ export function AreaManagementScreen() {
     );
   }, [deferredQuery, state.workspace?.spaces]);
 
-  const activeCount = spaces.filter((space) => space.occupancyRate >= 45 && space.occupancyRate < 75).length;
-  const maintenanceCount = spaces.filter((space) => space.occupancyRate >= 75 && space.occupancyRate < 90).length;
-  const criticalCount = spaces.filter((space) => space.occupancyRate >= 90).length;
+  const moderateOccupancyCount = spaces.filter(
+    (space) => hasAvailableOccupancy(space) && space.occupancyRate >= 45 && space.occupancyRate < 75,
+  ).length;
+  const highOccupancyCount = spaces.filter(
+    (space) => hasAvailableOccupancy(space) && space.occupancyRate >= 75 && space.occupancyRate < 90,
+  ).length;
+  const criticalCount = spaces.filter(
+    (space) => hasAvailableOccupancy(space) && space.occupancyRate >= 90,
+  ).length;
 
   const resetZoneForm = useCallback(() => {
     setZoneForm({
@@ -866,10 +1048,8 @@ export function AreaManagementScreen() {
       setCreateError("위도와 경도는 숫자여야 합니다.");
       return;
     }
-
-    const headers = await state.resolveAuthHeaders();
-    if (!headers) {
-      setCreateError("인증 세션을 확인할 수 없습니다.");
+    if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
+      setCreateError("위도는 -90~90, 경도는 -180~180 범위로 입력해 주세요.");
       return;
     }
 
@@ -887,6 +1067,11 @@ export function AreaManagementScreen() {
 
     setCreateSubmitting(true);
     try {
+      const headers = await state.resolveAuthHeaders();
+      if (!headers) {
+        setCreateError("인증 세션을 확인할 수 없습니다.");
+        return;
+      }
       await createZone(headers, payload);
       await state.reload();
       setCreateModalOpen(false);
@@ -901,37 +1086,27 @@ export function AreaManagementScreen() {
   return (
     <ShellContent
       activeKey="areas"
-      title="Area Management"
-      subtitle="Manage and monitor real-time occupancy and hardware health across your zones."
+      title="공간 관리"
+      subtitle="운영 공간별 최근 점유율과 연결 장비 상태를 확인하고 새 공간을 등록합니다."
       state={state}
       toolbar={
         <>
-          {searchField(query, setQuery, "Search areas...")}
-          {toolButton("Filter")}
-          {toolButton("New Zone", openCreateModal, "primary")}
+          {searchField(query, setQuery, "공간 이름 또는 주소 검색")}
+          {toolButton("새 공간 등록", openCreateModal, "primary")}
         </>
       }
     >
       {state.workspace ? (
         <div className="space-y-6">
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <div className="flex overflow-x-auto border-b border-slate-200 dark:border-slate-800">
-              <button className="border-b-2 border-sky-500 px-4 py-2 text-sm font-semibold text-sky-600 dark:text-sky-300">
-                All Zones ({spaces.length})
-              </button>
-              <button className="px-4 py-2 text-sm font-medium text-slate-500">
-                Active ({activeCount})
-              </button>
-              <button className="px-4 py-2 text-sm font-medium text-slate-500">
-                Maintenance ({maintenanceCount})
-              </button>
-              <button className="px-4 py-2 text-sm font-medium text-slate-500">
-                Critical ({criticalCount})
-              </button>
-            </div>
+          <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
+            <div className="rounded-lg bg-slate-100 px-4 py-3 dark:bg-slate-800"><span className="text-slate-500 dark:text-slate-400">검색 결과</span><strong className="ml-2 text-slate-900 dark:text-white">{spaces.length}</strong></div>
+            <div className="rounded-lg bg-blue-50 px-4 py-3 text-blue-800 dark:bg-blue-500/10 dark:text-blue-200"><span>보통 45–74%</span><strong className="ml-2">{moderateOccupancyCount}</strong></div>
+            <div className="rounded-lg bg-amber-50 px-4 py-3 text-amber-800 dark:bg-amber-500/10 dark:text-amber-200"><span>혼잡 75–89%</span><strong className="ml-2">{highOccupancyCount}</strong></div>
+            <div className="rounded-lg bg-rose-50 px-4 py-3 text-rose-800 dark:bg-rose-500/10 dark:text-rose-200"><span>매우 혼잡 90%+</span><strong className="ml-2">{criticalCount}</strong></div>
           </div>
 
-          <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
+          {spaces.length > 0 ? (
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {spaces.map((space) => {
               const gatewayCount =
                 state.workspace?.gateways.filter((gateway) => gateway.spaceId === space.spaceId)
@@ -941,7 +1116,7 @@ export function AreaManagementScreen() {
                 <Link key={space.spaceId} href={`/areas/${space.spaceId}`} className="block">
                   <Panel
                     className={cn(
-                      "h-full transition hover:-translate-y-1 hover:shadow-[0_22px_48px_rgba(15,23,42,0.12)] dark:hover:shadow-[0_22px_48px_rgba(2,8,23,0.4)]",
+                      "h-full transition hover:border-blue-300 hover:shadow-md dark:hover:border-blue-500/40",
                       space.occupancyRate >= 90
                         ? "border-rose-200 dark:border-rose-500/20"
                         : space.occupancyRate >= 75
@@ -963,7 +1138,7 @@ export function AreaManagementScreen() {
 
                     <div className="mt-5">
                       <div className="mb-1 flex items-center justify-between text-xs">
-                        <span className="text-slate-500 dark:text-slate-400">Occupancy</span>
+                        <span className="text-slate-500 dark:text-slate-400">현재 점유율</span>
                         <span
                           className={cn(
                             "font-bold",
@@ -975,7 +1150,7 @@ export function AreaManagementScreen() {
                           {!hasAvailableOccupancy(space)
                             ? "수집 데이터 없음"
                             : space.occupancyRate >= 100
-                            ? "Overloaded"
+                            ? "수용 범위 초과"
                             : `${Math.round(space.occupancyRate)}%`}
                         </span>
                       </div>
@@ -987,11 +1162,11 @@ export function AreaManagementScreen() {
                               ? "bg-rose-500"
                               : space.occupancyRate >= 75
                                 ? "bg-amber-500"
-                                : "bg-sky-500",
+                                : "bg-blue-500",
                           )}
                           style={{
                             width: hasAvailableOccupancy(space)
-                              ? `${Math.max(Math.min(space.occupancyRate, 100), 5)}%`
+                              ? `${Math.min(Math.max(space.occupancyRate, 0), 100)}%`
                               : "0%",
                           }}
                         />
@@ -1001,21 +1176,21 @@ export function AreaManagementScreen() {
                     <div className="mt-5 grid grid-cols-2 gap-4 border-t border-slate-100 pt-4 dark:border-slate-800">
                       <div>
                         <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
-                          Gateway
+                          게이트웨이
                         </p>
                         <p className="mt-1 text-xs font-mono font-medium text-slate-600 dark:text-slate-300">
                           {gatewayCount > 0
                             ? state.workspace?.gateways.find((gateway) => gateway.spaceId === space.spaceId)
-                                ?.gatewayId ?? "N/A"
+                                ?.gatewayId ?? "확인 불가"
                             : "미등록"}
                         </p>
                       </div>
                       <div>
                         <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
-                          Sensors
+                          센서
                         </p>
                         <p className="mt-1 text-xs font-bold text-slate-700 dark:text-slate-200">
-                          {space.sensors.length} Active
+                          {space.sensors.length}개 등록
                         </p>
                       </div>
                     </div>
@@ -1024,6 +1199,12 @@ export function AreaManagementScreen() {
               );
             })}
           </div>
+          ) : (
+            <EmptyPanel
+              title={query.trim() ? "검색 결과가 없습니다." : "등록된 공간이 없습니다."}
+              description={query.trim() ? "공간 이름이나 주소를 바꿔 다시 검색해 주세요." : "새 공간 등록으로 첫 운영 공간을 추가해 주세요."}
+            />
+          )}
         </div>
       ) : (
         <EmptyPanel
@@ -1033,7 +1214,7 @@ export function AreaManagementScreen() {
       )}
       <ModalFrame
         open={isCreateModalOpen}
-        title="Create New Zone"
+        title="새 공간 등록"
         description="새 공간을 등록하면 관리자 워크스페이스에 즉시 추가되고, 공개 노출은 검증 전까지 보류됩니다."
         onClose={closeCreateModal}
         footer={
@@ -1051,51 +1232,62 @@ export function AreaManagementScreen() {
                 취소
               </button>
               <button
-                type="button"
-                onClick={() => void submitCreateZone()}
+                type="submit"
+                form="create-zone-form"
                 disabled={createSubmitting}
-                className="rounded-xl border border-sky-500/20 bg-[#2b8cee] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#2476ca] disabled:cursor-not-allowed disabled:opacity-60"
+                className="rounded-lg border border-blue-600 bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {createSubmitting ? "Creating..." : "Create Zone"}
+                {createSubmitting ? "등록 중..." : "공간 등록"}
               </button>
             </div>
           </div>
         }
       >
-        <div className="grid gap-6 lg:grid-cols-[1.35fr_0.85fr]">
+        <form
+          id="create-zone-form"
+          className="grid gap-6 lg:grid-cols-[1.35fr_0.85fr]"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void submitCreateZone();
+          }}
+        >
           <div className="grid gap-4">
             <label className="grid gap-2">
-              <span className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">Zone Name</span>
+              <span className="text-sm font-bold text-slate-700 dark:text-slate-200">공간 이름 *</span>
               <input
                 value={zoneForm.name}
                 onChange={(event) => setZoneForm((current) => ({ ...current, name: event.target.value }))}
-                placeholder="Meeting Room Sigma"
-                className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-sky-300 dark:border-slate-800 dark:bg-slate-900"
+                placeholder="시그마 회의실"
+                required
+                maxLength={255}
+                className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-blue-300 dark:border-slate-800 dark:bg-slate-900"
               />
             </label>
 
             <label className="grid gap-2">
-              <span className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">Description</span>
+              <span className="text-sm font-bold text-slate-700 dark:text-slate-200">설명 *</span>
               <textarea
                 value={zoneForm.description}
                 onChange={(event) => setZoneForm((current) => ({ ...current, description: event.target.value }))}
                 rows={4}
-                placeholder="실시간 점유율과 장비 상태를 모니터링할 공간 설명"
-                className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-sky-300 dark:border-slate-800 dark:bg-slate-900"
+                placeholder="현재 점유율과 장비 상태를 확인할 공간 설명"
+                required
+                maxLength={1000}
+                className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-blue-300 dark:border-slate-800 dark:bg-slate-900"
               />
             </label>
 
             <div className="grid gap-4 sm:grid-cols-1">
               <label className="grid gap-2">
-                <span className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">Operational Status</span>
+                <span className="text-sm font-bold text-slate-700 dark:text-slate-200">운영 상태</span>
                 <select
                   value={zoneForm.operationalStatus}
                   onChange={(event) => setZoneForm((current) => ({ ...current, operationalStatus: event.target.value }))}
-                  className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-sky-300 dark:border-slate-800 dark:bg-slate-900"
+                  className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-blue-300 dark:border-slate-800 dark:bg-slate-900"
                 >
                   {ZONE_OPERATIONAL_STATUSES.map((status) => (
                     <option key={status} value={status}>
-                      {status}
+                      {operationalStatusLabel(status)}
                     </option>
                   ))}
                 </select>
@@ -1103,76 +1295,90 @@ export function AreaManagementScreen() {
             </div>
 
             <label className="grid gap-2">
-              <span className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">Address</span>
+              <span className="text-sm font-bold text-slate-700 dark:text-slate-200">주소 *</span>
               <input
                 value={zoneForm.address}
                 onChange={(event) => setZoneForm((current) => ({ ...current, address: event.target.value }))}
                 placeholder="서울 강남구 테헤란로 101"
-                className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-sky-300 dark:border-slate-800 dark:bg-slate-900"
+                required
+                maxLength={500}
+                className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-blue-300 dark:border-slate-800 dark:bg-slate-900"
               />
             </label>
           </div>
 
           <div className="grid gap-4">
-            <Panel className="rounded-[22px] border border-sky-100 bg-[linear-gradient(180deg,#f8fbff_0%,#edf5ff_100%)] shadow-none dark:border-sky-500/10 dark:bg-[linear-gradient(180deg,#101a28_0%,#0d1724_100%)]">
-              <p className="text-[11px] font-bold uppercase tracking-[0.24em] text-sky-500 dark:text-sky-300">
-                Deployment Meta
+            <Panel className="border-blue-100 bg-blue-50 shadow-none dark:border-blue-500/10 dark:bg-blue-500/5">
+              <p className="text-[11px] font-bold uppercase tracking-[0.24em] text-blue-500 dark:text-blue-300">
+                위치 및 연락 정보
               </p>
               <div className="mt-4 grid gap-4">
                 <label className="grid gap-2">
-                  <span className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">Latitude</span>
+                  <span className="text-sm font-bold text-slate-700 dark:text-slate-200">위도 *</span>
                   <input
                     value={zoneForm.latitude}
                     onChange={(event) => setZoneForm((current) => ({ ...current, latitude: event.target.value }))}
-                    inputMode="decimal"
-                    className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-sky-300 dark:border-slate-800 dark:bg-slate-900"
+                    type="number"
+                    min={-90}
+                    max={90}
+                    step="any"
+                    required
+                    className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-blue-300 dark:border-slate-800 dark:bg-slate-900"
                   />
                 </label>
                 <label className="grid gap-2">
-                  <span className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">Longitude</span>
+                  <span className="text-sm font-bold text-slate-700 dark:text-slate-200">경도 *</span>
                   <input
                     value={zoneForm.longitude}
                     onChange={(event) => setZoneForm((current) => ({ ...current, longitude: event.target.value }))}
-                    inputMode="decimal"
-                    className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-sky-300 dark:border-slate-800 dark:bg-slate-900"
+                    type="number"
+                    min={-180}
+                    max={180}
+                    step="any"
+                    required
+                    className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-blue-300 dark:border-slate-800 dark:bg-slate-900"
                   />
                 </label>
                 <label className="grid gap-2">
-                  <span className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">Phone</span>
+                  <span className="text-sm font-bold text-slate-700 dark:text-slate-200">전화번호</span>
                   <input
                     value={zoneForm.phoneNumber}
                     onChange={(event) => setZoneForm((current) => ({ ...current, phoneNumber: event.target.value }))}
                     placeholder="02-7000-1000"
-                    className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-sky-300 dark:border-slate-800 dark:bg-slate-900"
+                    type="tel"
+                    maxLength={30}
+                    className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-blue-300 dark:border-slate-800 dark:bg-slate-900"
                   />
                 </label>
                 <label className="grid gap-2">
-                  <span className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">Operating Hours</span>
+                  <span className="text-sm font-bold text-slate-700 dark:text-slate-200">운영 시간</span>
                   <input
                     value={zoneForm.operatingHours}
                     onChange={(event) => setZoneForm((current) => ({ ...current, operatingHours: event.target.value }))}
                     placeholder="08:00-22:00"
-                    className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-sky-300 dark:border-slate-800 dark:bg-slate-900"
+                    maxLength={100}
+                    className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-blue-300 dark:border-slate-800 dark:bg-slate-900"
                   />
                 </label>
                 <label className="grid gap-2">
-                  <span className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">Image URL</span>
+                  <span className="text-sm font-bold text-slate-700 dark:text-slate-200">이미지 경로</span>
                   <input
                     value={zoneForm.imageUrl}
                     onChange={(event) => setZoneForm((current) => ({ ...current, imageUrl: event.target.value }))}
                     placeholder="/images/spaces/new-zone.jpg"
-                    className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-sky-300 dark:border-slate-800 dark:bg-slate-900"
+                    maxLength={1000}
+                    className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-blue-300 dark:border-slate-800 dark:bg-slate-900"
                   />
                 </label>
               </div>
             </Panel>
 
-            <div className="rounded-[22px] border border-slate-200 bg-slate-50/80 p-4 text-sm text-slate-500 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-400">
+            <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-4 text-sm text-slate-500 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-400">
               <p className="font-semibold text-slate-900 dark:text-white">생성 규칙</p>
               <ul className="mt-3 space-y-2">
-                <li>새 zone은 현재 로그인한 관리자 소유로 생성됩니다.</li>
+                <li>새 공간은 현재 로그인한 관리자 소유로 생성됩니다.</li>
                 <li>생성 직후 관리자 화면에는 보이지만, 공개 노출은 검증 전까지 제외됩니다.</li>
-                <li>게이트웨이와 센서는 이후 해당 zone 안에서 별도로 연결합니다.</li>
+                <li>게이트웨이와 센서는 이후 해당 공간 안에서 별도로 연결합니다.</li>
               </ul>
             </div>
 
@@ -1182,35 +1388,36 @@ export function AreaManagementScreen() {
               </div>
             ) : null}
           </div>
-        </div>
+        </form>
       </ModalFrame>
     </ShellContent>
   );
 }
 
+/** 단일 공간의 현재 스냅샷, 연결 센서, 실측 사용량을 함께 보여준다. */
 export function AreaDetailScreen({ spaceId }: { spaceId: number }) {
   const state = useWorkspaceLoader();
   const space = useMemo(
-    () => state.workspace?.spaces.find((item) => item.spaceId === spaceId) ?? state.workspace?.spaces[0] ?? null,
+    () => state.workspace?.spaces.find((item) => item.spaceId === spaceId) ?? null,
     [spaceId, state.workspace?.spaces],
   );
   const gatewayCount = useMemo(
     () => state.workspace?.gateways.filter((gateway) => gateway.spaceId === space?.spaceId).length ?? 0,
     [space?.spaceId, state.workspace?.gateways],
   );
-  const { history, reloadHistory } = useSpaceHistoryState(state, space);
+  const { history, error: historyError, reloadHistory } = useSpaceHistoryState(state, space);
 
   return (
     <ShellContent
       activeKey="areas"
-      title={space ? `${space.name} Area Detail` : "Area Detail"}
-      subtitle="공간별 점유율, 센서 위치, 최근 텔레메트리를 한 번에 검토합니다."
+      title={space ? `${space.name} 상세` : "공간 상세"}
+      subtitle="공간별 점유율, 등록된 센서 위치 코드, 최근 텔레메트리를 한 번에 검토합니다."
       state={state}
       toolbar={
         <>
           <Link
             href="/areas"
-            className="rounded-full border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-slate-300 transition hover:border-white/20 hover:bg-white/[0.08] hover:text-white"
+            className="inline-flex min-h-11 items-center rounded-lg border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700 transition hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
           >
             목록으로
           </Link>
@@ -1222,28 +1429,28 @@ export function AreaDetailScreen({ spaceId }: { spaceId: number }) {
         <div className="space-y-6">
           <div className="grid gap-4 xl:grid-cols-4">
             <MetricCard
-              label="Current Occupancy"
-              value={hasAvailableOccupancy(space) ? formatNumber(space.occupiedCount) : "N/A"}
+              label="현재 사용 위치"
+              value={hasAvailableOccupancy(space) ? `${formatNumber(space.occupiedCount)}개` : "확인 불가"}
               hint={hasAvailableOccupancy(space)
-                ? `${formatPercent(space.occupancyRate)} · ${space.crowdLevel}`
+                ? `${formatPercent(space.occupancyRate)} · ${occupancyStateLabel(space)}`
                 : "최근 신뢰 가능한 센서 데이터가 없습니다."}
             />
             <MetricCard
-              label="Active Sensors"
-              value={formatNumber(space.activeSensorCount)}
-              hint={`${formatNumber(space.offlineCount)} offline / maintenance`}
+              label="보고 센서"
+              value={`${formatNumber(space.activeSensorCount)}개`}
+              hint={`오프라인 ${formatNumber(space.offlineCount)}개`}
               tone="emerald"
             />
             <MetricCard
-              label="Average Battery"
-              value={space.avgBattery > 0 ? `${space.avgBattery.toFixed(0)}%` : "N/A"}
-              hint={`${formatNumber(space.lowBatteryCount)} low battery nodes`}
+              label="평균 배터리"
+              value={space.avgBattery === null ? "확인 불가" : `${space.avgBattery.toFixed(0)}%`}
+              hint={`배터리 부족 ${formatNumber(space.lowBatteryCount)}개`}
               tone="orange"
             />
             <MetricCard
-              label="Average Rating"
+              label="사용자 평점"
               value={space.averageRating > 0 ? space.averageRating.toFixed(1) : "0.0"}
-              hint={`${formatNumber(space.reviewCount)} review signals`}
+              hint={`리뷰 ${formatNumber(space.reviewCount)}건 기준`}
               tone="rose"
             />
           </div>
@@ -1252,107 +1459,103 @@ export function AreaDetailScreen({ spaceId }: { spaceId: number }) {
             <Panel>
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-[11px] uppercase tracking-[0.26em] text-cyan-200/80">
-                    Zone Coverage
-                  </p>
-                  <h2 className="mt-2 text-xl font-semibold text-white">
-                    Real-time Zone Plan
+                  <p className="text-xs font-bold text-blue-600 dark:text-blue-300">위치 원장</p>
+                  <h2 className="mt-1 text-xl font-bold text-slate-900 dark:text-white">
+                    센서 위치 등록 현황
                   </h2>
                 </div>
-                <StatusBadge tone={spaceTone(space)}>{space.operationalStatus ?? occupancyStateLabel(space)}</StatusBadge>
+                <StatusBadge tone={space.operationalStatus ? operationalStatusTone(space.operationalStatus) : spaceTone(space)}>
+                  {operationalStatusLabel(space.operationalStatus) ?? occupancyStateLabel(space)}
+                </StatusBadge>
               </div>
-              <div className="relative mt-5 aspect-[16/10] overflow-hidden rounded-[28px] border border-white/8 bg-slate-900">
-                <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(34,211,238,0.18),transparent_28%),radial-gradient(circle_at_bottom_right,rgba(249,115,22,0.14),transparent_30%),linear-gradient(145deg,rgba(2,6,23,0.95),rgba(15,23,42,0.98))]" />
-                <div
-                  className="absolute inset-0 opacity-15"
-                  style={{
-                    backgroundImage:
-                      "linear-gradient(to right, rgba(148,163,184,0.35) 1px, transparent 1px), linear-gradient(to bottom, rgba(148,163,184,0.35) 1px, transparent 1px)",
-                    backgroundSize: "58px 58px",
-                  }}
-                />
-                <div className="pointer-events-none absolute left-5 top-5 flex max-w-[85%] flex-wrap gap-2">
-                  <span className="rounded-full border border-cyan-400/20 bg-cyan-500/10 px-3 py-1 text-[11px] text-cyan-100">
-                    {textOrFallback(space.addressLabel, "주소 미등록")}
-                  </span>
-                  <span className="rounded-full border border-indigo-400/20 bg-indigo-500/10 px-3 py-1 text-[11px] text-indigo-100">
-                    {space.operationalStatus ?? "ACTIVE"}
-                  </span>
-                  <span className="rounded-full border border-emerald-400/20 bg-emerald-500/10 px-3 py-1 text-[11px] text-emerald-100">
-                    Sensors {space.sensors.length}
-                  </span>
-                  <span className="rounded-full border border-amber-400/20 bg-amber-500/10 px-3 py-1 text-[11px] text-amber-100">
-                    Gateways {gatewayCount}
-                  </span>
-                </div>
-
-                {space.sensors.map((sensor, index) => {
-                  const position = parsePositionCode(sensor.positionCode) ?? autoPosition(index, space.sensors.length);
-                  return (
+              <div className="mt-5 flex flex-wrap gap-2 text-xs text-slate-600 dark:text-slate-300">
+                <span className="rounded-lg bg-slate-100 px-3 py-2 dark:bg-slate-800">{textOrFallback(space.addressLabel, "주소 미등록")}</span>
+                <span className="rounded-lg bg-slate-100 px-3 py-2 dark:bg-slate-800">센서 {space.sensors.length}개</span>
+                <span className="rounded-lg bg-slate-100 px-3 py-2 dark:bg-slate-800">게이트웨이 {gatewayCount}개</span>
+              </div>
+              {space.sensors.length > 0 ? (
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  {space.sensors.map((sensor) => (
                     <Link
                       key={sensor.sensorId}
                       href={`/sensors/${sensor.sensorId}`}
-                      className={cn(
-                        "absolute -translate-x-1/2 -translate-y-1/2 rounded-2xl border px-3 py-2 text-left shadow-lg transition hover:scale-[1.03]",
-                        sensor.status === "ACTIVE"
-                          ? "border-cyan-300/25 bg-white/92 text-slate-900"
-                          : "border-orange-300/20 bg-orange-100/90 text-slate-900",
-                      )}
-                      style={{ left: `${position.x}%`, top: `${position.y}%` }}
+                      className="rounded-xl border border-slate-200 bg-slate-50 p-4 transition hover:border-blue-300 dark:border-slate-800 dark:bg-slate-800/35 dark:hover:border-blue-500/40"
                     >
-                      <p className="text-xs font-semibold">{sensor.sensorId}</p>
-                      <p className="mt-1 text-[10px] text-slate-500">{sensor.batteryLabel}</p>
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-bold text-slate-900 dark:text-white">{sensor.sensorId}</p>
+                          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                            {textOrFallback(sensor.positionCode ?? sensor.locationLabel, "위치 미지정")}
+                          </p>
+                        </div>
+                        <StatusBadge tone={detectionStatusTone(sensor.detectionStatus)}>
+                          {detectionStatusLabel(sensor.detectionStatus)}
+                        </StatusBadge>
+                      </div>
                     </Link>
-                  );
-                })}
-              </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="mt-4 text-sm text-slate-500 dark:text-slate-400">이 공간에 등록된 센서가 없습니다.</p>
+              )}
+              <p className="mt-4 text-xs leading-5 text-slate-500 dark:text-slate-400">
+                현재 API는 도면 좌표를 제공하지 않으므로 실제 평면 배치를 추정하지 않고 등록된 위치 코드만 표시합니다.
+              </p>
             </Panel>
 
             <div className="space-y-6">
               <Panel>
-                <h2 className="text-lg font-semibold text-white">Sensor Cluster</h2>
+                <h2 className="text-lg font-bold text-slate-900 dark:text-white">연결 센서</h2>
                 <div className="mt-4 space-y-3">
                   {space.sensors.map((sensor) => (
                     <Link
                       key={sensor.sensorId}
                       href={`/sensors/${sensor.sensorId}`}
-                      className="flex items-center justify-between rounded-[22px] border border-white/8 bg-white/[0.03] px-4 py-4 transition hover:bg-white/[0.06]"
+                      className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-4 py-4 transition hover:border-blue-300 dark:border-slate-800 dark:bg-slate-800/40 dark:hover:border-blue-500/40"
                     >
                       <div>
-                        <p className="font-medium text-white">{sensor.sensorId}</p>
+                        <p className="font-bold text-slate-900 dark:text-white">{sensor.sensorId}</p>
                         <p className="mt-1 text-xs text-slate-400">{sensor.locationLabel}</p>
                       </div>
                       <div className="text-right">
-                        <StatusBadge tone={sensor.status === "ACTIVE" ? "success" : "warning"}>
-                          {sensor.status}
+                        <StatusBadge
+                          tone={detectionStatusTone(sensor.detectionStatus)}
+                        >
+                          {detectionStatusLabel(sensor.detectionStatus)}
                         </StatusBadge>
                         <p className="mt-2 text-xs text-slate-500">{sensor.batteryLabel}</p>
                       </div>
                     </Link>
                   ))}
+                  {space.sensors.length === 0 ? (
+                    <p className="text-sm text-slate-500 dark:text-slate-400">이 공간에 연결된 센서가 없습니다.</p>
+                  ) : null}
                 </div>
               </Panel>
 
               <Panel>
-                <h2 className="text-lg font-semibold text-white">Recent Telemetry</h2>
+                <h2 className="text-lg font-bold text-slate-900 dark:text-white">최근 텔레메트리</h2>
                 <div className="mt-4 space-y-3">
                   {space.recentTelemetry.slice(0, 5).map((telemetry) => (
                     <div
                       key={telemetry.telemetryId}
-                      className="rounded-[22px] border border-white/8 bg-white/[0.03] px-4 py-4"
+                      className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-4 dark:border-slate-800 dark:bg-slate-800/40"
                     >
-                      <p className="font-medium text-white">
-                        {telemetry.sensorId} · {telemetry.occupied ? "Occupied" : "Vacant"}
+                      <p className="font-bold text-slate-900 dark:text-white">
+                        {telemetry.sensorId} · {telemetry.occupied ? "사용 중" : "비어 있음"}
                       </p>
-                      <p className="mt-1 text-sm text-slate-300">
+                      <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
                         {telemetry.distanceCm != null
-                          ? `distance ${telemetry.distanceCm.toFixed(1)}cm`
-                          : `pad ${telemetry.padLeftValue ?? "-"} / ${telemetry.padRightValue ?? "-"}`}
-                        {" · "}quality {telemetry.qualityStatus ?? "N/A"}
+                          ? `거리 ${telemetry.distanceCm.toFixed(1)}cm`
+                          : `패드 ${telemetry.padLeftValue ?? "-"} / ${telemetry.padRightValue ?? "-"}`}
+                        {" · "}신뢰도 {telemetryQualityLabel(telemetry.qualityStatus)}
                       </p>
                       <p className="mt-2 text-xs text-slate-500">{formatDateTime(telemetry.measuredAt)}</p>
                     </div>
                   ))}
+                  {space.recentTelemetry.length === 0 ? (
+                    <p className="text-sm text-slate-500 dark:text-slate-400">최근 텔레메트리가 없습니다.</p>
+                  ) : null}
                 </div>
               </Panel>
             </div>
@@ -1361,7 +1564,7 @@ export function AreaDetailScreen({ spaceId }: { spaceId: number }) {
           <Panel>
             <div className="flex items-center justify-between">
                 <div>
-                  <h2 className="text-lg font-semibold text-white">Occupancy History</h2>
+                  <h2 className="text-lg font-bold text-slate-900 dark:text-white">시간대별 사용률</h2>
                   <p className="mt-1 text-sm text-slate-400">
                     선택 기간의 실측 사용률을 시간 bucket별로 표시합니다.
                   </p>
@@ -1371,6 +1574,9 @@ export function AreaDetailScreen({ spaceId }: { spaceId: number }) {
             <div className="mt-5">
               <MiniBars points={history} />
             </div>
+            {historyError ? (
+              <p className="mt-3 text-xs text-rose-300">{historyError}</p>
+            ) : null}
           </Panel>
         </div>
       ) : (
@@ -1383,12 +1589,14 @@ export function AreaDetailScreen({ spaceId }: { spaceId: number }) {
   );
 }
 
+/** 센서 검색·상태 확인·등록·설치·명령 생성을 담당하는 운영 화면이다. */
 export function SensorsScreen() {
   const state = useWorkspaceLoader();
   const [query, setQuery] = useState("");
   const deferredQuery = useDeferredValue(query);
   const [notice, setNotice] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [actionSubmitting, setActionSubmitting] = useState(false);
   const [isRegisterModalOpen, setRegisterModalOpen] = useState(false);
   const [isInstallModalOpen, setInstallModalOpen] = useState(false);
   const [isCommandModalOpen, setCommandModalOpen] = useState(false);
@@ -1396,7 +1604,7 @@ export function SensorsScreen() {
   const [registerForm, setRegisterForm] = useState({
     sensorId: "",
     macAddress: "",
-    model: "ZQ-SENSOR-V3",
+    model: "XIAO-NRF52840-VL53L1X",
     type: SENSOR_TYPES[0],
     protocol: SENSOR_PROTOCOLS[0],
     placeId: 0,
@@ -1476,12 +1684,17 @@ export function SensorsScreen() {
     () => availableGatewaysForPlace(selectedInstallPlaceId),
     [availableGatewaysForPlace, selectedInstallPlaceId],
   );
+  const selectedCommandSensor = useMemo(
+    () => state.workspace?.sensors.find((sensor) => sensor.sensorId === commandForm.sensorId) ?? null,
+    [commandForm.sensorId, state.workspace?.sensors],
+  );
+  const isBleCommandTarget = selectedCommandSensor?.protocol.trim().toUpperCase() === "BLE_GATEWAY";
 
   const resetRegisterForm = useCallback(() => {
     setRegisterForm({
       sensorId: "",
       macAddress: "",
-      model: "ZQ-SENSOR-V3",
+      model: "XIAO-NRF52840-VL53L1X",
       type: SENSOR_TYPES[0],
       protocol: SENSOR_PROTOCOLS[0],
       placeId: state.workspace?.spaces[0]?.spaceId ?? 0,
@@ -1491,14 +1704,19 @@ export function SensorsScreen() {
 
   const openRegisterModal = useCallback(() => {
     resetRegisterForm();
+    setActionError(null);
     setRegisterModalOpen(true);
   }, [resetRegisterForm]);
 
   const closeRegisterModal = useCallback(() => {
+    if (actionSubmitting) {
+      return;
+    }
     setRegisterModalOpen(false);
-  }, []);
+  }, [actionSubmitting]);
 
   const openInstallModal = useCallback((sensor?: SensorRecord | null) => {
+    setActionError(null);
     setInstallForm({
       sensorId: sensor?.sensorId ?? "",
       placeId: sensor?.placeId ?? state.workspace?.spaces[0]?.spaceId ?? 0,
@@ -1508,10 +1726,14 @@ export function SensorsScreen() {
   }, [state.workspace?.spaces]);
 
   const closeInstallModal = useCallback(() => {
+    if (actionSubmitting) {
+      return;
+    }
     setInstallModalOpen(false);
-  }, []);
+  }, [actionSubmitting]);
 
   const openCommandModal = useCallback((sensor?: SensorRecord | null) => {
+    setActionError(null);
     setCommandForm({
       sensorId: sensor?.sensorId ?? "",
       commandType: SENSOR_COMMAND_TYPES[0],
@@ -1521,30 +1743,43 @@ export function SensorsScreen() {
   }, []);
 
   const closeCommandModal = useCallback(() => {
+    if (actionSubmitting) {
+      return;
+    }
     setCommandModalOpen(false);
-  }, []);
+  }, [actionSubmitting]);
 
   const executeAction = useCallback(
     async (runner: (headers: Record<string, string>) => Promise<{ ok: boolean; message?: string }>, successMessage: string) => {
+      if (actionSubmitting) {
+        return false;
+      }
       setNotice(null);
       setActionError(null);
+      setActionSubmitting(true);
+      try {
+        const headers = await state.resolveAuthHeaders();
+        if (!headers) {
+          setActionError("인증 세션을 확인할 수 없습니다.");
+          return false;
+        }
+        const result = await runner(headers);
+        if (!result.ok) {
+          setActionError(result.message ?? "요청 처리에 실패했습니다.");
+          return false;
+        }
 
-      const headers = await state.resolveAuthHeaders();
-      if (!headers) {
+        setNotice(successMessage);
+        await state.reload();
+        return true;
+      } catch (error) {
+        setActionError(error instanceof Error ? error.message : "요청 처리 중 오류가 발생했습니다.");
         return false;
+      } finally {
+        setActionSubmitting(false);
       }
-
-      const result = await runner(headers);
-      if (!result.ok) {
-        setActionError(result.message ?? "요청 처리에 실패했습니다.");
-        return false;
-      }
-
-      setNotice(successMessage);
-      await state.reload();
-      return true;
     },
-    [state],
+    [actionSubmitting, state],
   );
 
   const removeSensor = useCallback(
@@ -1591,19 +1826,23 @@ export function SensorsScreen() {
     () => sensors.filter((sensor) => sensor.status === "ACTIVE").length,
     [sensors],
   );
-  const inventorySubtitle = `${formatNumber(activeSensors)} sensors active across ${formatNumber(state.workspace?.gateways.length ?? 0)} registered gateways.`;
+  const inventorySubtitle = `활성 센서 ${formatNumber(activeSensors)}개 · 등록 게이트웨이 ${formatNumber(state.workspace?.gateways.length ?? 0)}개`;
 
   return (
     <ShellContent
       activeKey="sensors"
-      title="Sensor Inventory"
+      title="센서 관리"
       subtitle={inventorySubtitle}
       state={state}
       toolbar={
         <>
-          {searchField(query, setQuery, "Search by gateway, space, or sensor ID...")}
-          {toolButton("Export CSV")}
-          {toolButton("Add Sensor", openRegisterModal, "primary")}
+          {searchField(query, setQuery, "센서 ID, 공간 또는 게이트웨이 검색")}
+          {toolButton(
+            "센서 등록",
+            openRegisterModal,
+            "primary",
+            (state.workspace?.spaces.length ?? 0) === 0 || (state.workspace?.gateways.length ?? 0) === 0,
+          )}
         </>
       }
     >
@@ -1611,31 +1850,18 @@ export function SensorsScreen() {
         <div className="space-y-6">
           <NoticeStrip notice={notice} error={actionError ?? state.error} />
 
-          <Panel className="rounded-[24px] bg-slate-50/80 dark:bg-slate-900/45">
-            <div className="flex flex-wrap items-center gap-3">
-              <button className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200">
-                Status: All
-              </button>
-              <button className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200">
-                Type: All
-              </button>
-              <button className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200">
-                Filter
-              </button>
-            </div>
-          </Panel>
-
+          {sensors.length > 0 ? (
           <div className="space-y-8">
             {gatewaySections.map(({ gateway, sensors: gatewaySensors }) => (
               <section key={gateway.gatewayId} className="space-y-4">
                 <div className="flex items-center gap-3 border-b border-slate-200 pb-2 dark:border-slate-800">
-                  <Icon name="gateways" className="size-5 text-sky-500 dark:text-sky-300" />
+                  <Icon name="gateways" className="size-5 text-blue-500 dark:text-blue-300" />
                   <h3 className="text-lg font-bold text-slate-900 dark:text-white">
-                    Gateway: <span className="text-sky-600 dark:text-sky-300">{gateway.gatewayId}</span>
+                    게이트웨이 <span className="text-blue-700 dark:text-blue-300">{gateway.gatewayId}</span>
                   </h3>
-                  <StatusBadge tone={gatewayTone(gateway.status)}>{gateway.status}</StatusBadge>
+                  <StatusBadge tone={gatewayTone(gateway.status)}>{gatewayDisplayLabel(gateway)}</StatusBadge>
                   <span className="ml-auto text-sm text-slate-400">
-                    {gatewaySensors.length} Sensors Connected
+                    센서 {gatewaySensors.length}개
                   </span>
                 </div>
 
@@ -1644,11 +1870,11 @@ export function SensorsScreen() {
                     <table className="min-w-full text-left">
                       <thead>
                         <tr className="bg-slate-50 text-xs font-bold uppercase tracking-[0.18em] text-slate-500 dark:bg-slate-800/50 dark:text-slate-400">
-                          <th className="px-6 py-4">Sensor ID</th>
-                          <th className="px-6 py-4">Type</th>
-                          <th className="px-6 py-4">Battery</th>
-                          <th className="px-6 py-4">Status</th>
-                          <th className="px-6 py-4 text-right">Actions</th>
+                          <th className="px-6 py-4">센서 ID</th>
+                          <th className="px-6 py-4">유형</th>
+                          <th className="px-6 py-4">배터리</th>
+                          <th className="px-6 py-4">등록 / 감지 상태</th>
+                          <th className="px-6 py-4 text-right">작업</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -1669,28 +1895,32 @@ export function SensorsScreen() {
                                   <div
                                     className={cn(
                                       "h-full",
-                                      (sensor.batteryPercent ?? 0) <= 15
+                                      sensor.batteryPercent === null
+                                        ? "bg-slate-400"
+                                        : sensor.batteryPercent <= 15
                                         ? "bg-rose-500"
-                                        : (sensor.batteryPercent ?? 0) <= 40
+                                        : sensor.batteryPercent <= 40
                                           ? "bg-amber-500"
                                           : "bg-emerald-500",
                                     )}
-                                    style={{ width: `${Math.max(sensor.batteryPercent ?? 0, 5)}%` }}
+                                    style={{ width: `${sensor.batteryPercent ?? 0}%` }}
                                   />
                                 </div>
                                 <span
                                   className={cn(
                                     "text-xs font-medium",
-                                    (sensor.batteryPercent ?? 0) <= 15
+                                    sensor.batteryPercent === null
+                                      ? "text-slate-400"
+                                      : sensor.batteryPercent <= 15
                                       ? "text-rose-500"
-                                      : (sensor.batteryPercent ?? 0) <= 40
+                                      : sensor.batteryPercent <= 40
                                         ? "text-amber-500"
                                         : "text-emerald-500",
                                   )}
                                 >
                                   {sensor.batteryPercent !== null
                                     ? `${sensor.batteryPercent.toFixed(0)}%`
-                                    : "N/A"}
+                                    : "확인 불가"}
                                 </span>
                               </div>
                             </td>
@@ -1704,37 +1934,43 @@ export function SensorsScreen() {
                                       : "critical"
                                 }
                               >
-                                {sensor.status === "ACTIVE" ? "Operational" : sensor.status}
+                                {sensorLifecycleLabel(sensor.status)}
                               </StatusBadge>
+                              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                {detectionStatusLabel(sensor.detectionStatus)}
+                              </p>
                             </td>
                             <td className="px-6 py-4 text-right">
                               <div className="flex justify-end gap-2">
                                 <Link
                                   href={`/sensors/${sensor.sensorId}`}
-                                  className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-800"
+                                  className="inline-flex min-h-10 items-center rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-800"
                                 >
-                                  Detail
+                                  상세
                                 </Link>
                                 <button
                                   type="button"
                                   onClick={() => openInstallModal(sensor)}
-                                  className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-800"
+                                  disabled={actionSubmitting}
+                                  className="min-h-10 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-800"
                                 >
-                                  Install
+                                  배치
                                 </button>
                                 <button
                                   type="button"
                                   onClick={() => openCommandModal(sensor)}
-                                  className="rounded-lg bg-amber-500 px-3 py-2 text-xs font-semibold text-white transition hover:bg-amber-600"
+                                  disabled={actionSubmitting}
+                                  className="min-h-10 rounded-lg bg-amber-500 px-3 py-2 text-xs font-semibold text-white transition hover:bg-amber-600 disabled:cursor-wait disabled:opacity-60"
                                 >
-                                  Command
+                                  명령
                                 </button>
                                 <button
                                   type="button"
                                   onClick={() => removeSensor(sensor)}
-                                  className="rounded-lg bg-rose-500 px-3 py-2 text-xs font-semibold text-white transition hover:bg-rose-600"
+                                  disabled={actionSubmitting}
+                                  className="min-h-10 rounded-lg bg-rose-500 px-3 py-2 text-xs font-semibold text-white transition hover:bg-rose-600 disabled:cursor-wait disabled:opacity-60"
                                 >
-                                  Delete
+                                  삭제
                                 </button>
                               </div>
                             </td>
@@ -1751,10 +1987,10 @@ export function SensorsScreen() {
               <section className="space-y-4">
                 <div className="flex items-center gap-3 border-b border-slate-200 pb-2 dark:border-slate-800">
                   <Icon name="alert" className="size-5 text-amber-500" />
-                  <h3 className="text-lg font-bold text-slate-900 dark:text-white">Unassigned Sensors</h3>
-                  <StatusBadge tone="warning">Needs Mapping</StatusBadge>
+                  <h3 className="text-lg font-bold text-slate-900 dark:text-white">미배치 센서</h3>
+                  <StatusBadge tone="warning">배치 필요</StatusBadge>
                   <span className="ml-auto text-sm text-slate-400">
-                    {unassignedSensors.length} sensors
+                    {unassignedSensors.length}개
                   </span>
                 </div>
                 <Panel className="overflow-hidden p-0">
@@ -1762,11 +1998,11 @@ export function SensorsScreen() {
                     <table className="min-w-full text-left">
                       <thead>
                         <tr className="bg-slate-50 text-xs font-bold uppercase tracking-[0.18em] text-slate-500 dark:bg-slate-800/50 dark:text-slate-400">
-                          <th className="px-6 py-4">Sensor ID</th>
-                          <th className="px-6 py-4">Type</th>
-                          <th className="px-6 py-4">Space</th>
-                          <th className="px-6 py-4">Battery</th>
-                          <th className="px-6 py-4 text-right">Actions</th>
+                          <th className="px-6 py-4">센서 ID</th>
+                          <th className="px-6 py-4">유형</th>
+                          <th className="px-6 py-4">공간</th>
+                          <th className="px-6 py-4">배터리</th>
+                          <th className="px-6 py-4 text-right">작업</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -1789,16 +2025,18 @@ export function SensorsScreen() {
                                 <button
                                   type="button"
                                   onClick={() => openInstallModal(sensor)}
-                                  className="rounded-lg bg-sky-500 px-3 py-2 text-xs font-semibold text-white transition hover:bg-sky-600"
+                                  disabled={actionSubmitting}
+                                  className="min-h-10 rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-blue-700 disabled:cursor-wait disabled:opacity-60"
                                 >
-                                  Install
+                                  배치
                                 </button>
                                 <button
                                   type="button"
                                   onClick={() => removeSensor(sensor)}
-                                  className="rounded-lg bg-rose-500 px-3 py-2 text-xs font-semibold text-white transition hover:bg-rose-600"
+                                  disabled={actionSubmitting}
+                                  className="min-h-10 rounded-lg bg-rose-500 px-3 py-2 text-xs font-semibold text-white transition hover:bg-rose-600 disabled:cursor-wait disabled:opacity-60"
                                 >
-                                  Delete
+                                  삭제
                                 </button>
                               </div>
                             </td>
@@ -1811,32 +2049,20 @@ export function SensorsScreen() {
               </section>
             ) : null}
           </div>
-
-          <div className="flex items-center justify-between">
-            <p className="text-sm text-slate-500 dark:text-slate-400">
-              Showing <span className="font-semibold text-slate-900 dark:text-white">1-{sensors.length}</span> of{" "}
-              <span className="font-semibold text-slate-900 dark:text-white">{sensors.length}</span> sensors
-            </p>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                disabled
-                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-400 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-800 dark:bg-slate-900"
-              >
-                Prev
-              </button>
-              <button className="rounded-lg bg-sky-500 px-4 py-2 text-sm font-bold text-white">
-                1
-              </button>
-              <button
-                type="button"
-                disabled
-                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-400 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-800 dark:bg-slate-900"
-              >
-                Next
-              </button>
-            </div>
-          </div>
+          ) : (
+            <EmptyPanel
+              title={query.trim() ? "검색 결과가 없습니다." : "등록된 센서가 없습니다."}
+              description={
+                query.trim()
+                  ? "센서 ID, 공간 또는 게이트웨이 검색어를 바꿔 주세요."
+                  : (state.workspace?.spaces.length ?? 0) === 0
+                    ? "센서를 등록하려면 먼저 공간을 등록해 주세요."
+                    : (state.workspace?.gateways.length ?? 0) === 0
+                      ? "센서를 등록하려면 해당 공간의 게이트웨이를 먼저 등록해 주세요."
+                      : "센서 등록으로 첫 장비를 추가해 주세요."
+              }
+            />
+          )}
         </div>
       ) : (
         <EmptyPanel
@@ -1847,7 +2073,7 @@ export function SensorsScreen() {
 
       <ModalFrame
         open={isRegisterModalOpen}
-        title="Add Sensor"
+        title="센서 등록"
         description="새 센서를 등록하고 공간 및 게이트웨이 매핑을 함께 설정합니다."
         onClose={closeRegisterModal}
       >
@@ -1862,6 +2088,20 @@ export function SensorsScreen() {
             }
             if (!registerForm.gatewayId) {
               setActionError("센서를 등록할 게이트웨이를 선택해 주세요.");
+              return;
+            }
+            if (
+              registerForm.protocol === "BLE_GATEWAY"
+              && !/^[A-Za-z0-9_-]{1,8}$/.test(registerForm.sensorId.trim())
+            ) {
+              setActionError("BLE 센서 ID는 영문, 숫자, 하이픈, 밑줄만 사용해 1~8자로 입력해 주세요.");
+              return;
+            }
+            if (
+              registerForm.protocol === "BLE_GATEWAY"
+              && !/^[0-9A-Fa-f]{2}([:-][0-9A-Fa-f]{2}){5}$/.test(registerForm.macAddress.trim())
+            ) {
+              setActionError("BLE MAC 주소는 AA:BB:CC:DD:EE:FF 형식으로 입력해 주세요.");
               return;
             }
 
@@ -1883,61 +2123,86 @@ export function SensorsScreen() {
             })();
           }}
         >
-          <input
-            value={registerForm.sensorId}
-            onChange={(event) =>
-              setRegisterForm((current) => ({ ...current, sensorId: event.target.value }))
-            }
-            placeholder="sensorId"
-            className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none dark:border-slate-800 dark:bg-slate-900"
-            required
-          />
-          <input
-            value={registerForm.macAddress}
-            onChange={(event) =>
-              setRegisterForm((current) => ({ ...current, macAddress: event.target.value }))
-            }
-            placeholder="MAC address"
-            className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none dark:border-slate-800 dark:bg-slate-900"
-            required
-          />
-          <input
-            value={registerForm.model}
-            onChange={(event) =>
-              setRegisterForm((current) => ({ ...current, model: event.target.value }))
-            }
-            placeholder="model"
-            className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none dark:border-slate-800 dark:bg-slate-900"
-            required
-          />
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <select
+          <label className="grid gap-1.5 text-sm font-bold text-slate-700 dark:text-slate-200">
+            센서 ID *
+            <input
+              value={registerForm.sensorId}
+              onChange={(event) =>
+                setRegisterForm((current) => ({ ...current, sensorId: event.target.value }))
+              }
+              placeholder="SPOT-014"
+              maxLength={registerForm.protocol === "BLE_GATEWAY" ? 8 : 50}
+              pattern={registerForm.protocol === "BLE_GATEWAY" ? "[A-Za-z0-9_-]{1,8}" : undefined}
+              className="rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm font-normal outline-none dark:border-slate-700 dark:bg-slate-900"
+              required
+            />
+            {registerForm.protocol === "BLE_GATEWAY" ? (
+              <span className="text-xs font-normal text-slate-500 dark:text-slate-400">BLE 광고 프로토콜 제한에 따라 영문·숫자·-·_ 조합 8자 이하만 사용할 수 있습니다.</span>
+            ) : null}
+          </label>
+          <label className="grid gap-1.5 text-sm font-bold text-slate-700 dark:text-slate-200">
+            MAC 주소 *
+            <input
+              value={registerForm.macAddress}
+              onChange={(event) =>
+                setRegisterForm((current) => ({ ...current, macAddress: event.target.value }))
+              }
+              placeholder="AA:BB:CC:DD:EE:FF"
+              maxLength={20}
+              pattern={registerForm.protocol === "BLE_GATEWAY" ? "[0-9A-Fa-f]{2}([:-][0-9A-Fa-f]{2}){5}" : undefined}
+              className="rounded-lg border border-slate-300 bg-white px-4 py-3 font-mono text-sm font-normal outline-none dark:border-slate-700 dark:bg-slate-900"
+              required
+            />
+          </label>
+          <label className="grid gap-1.5 text-sm font-bold text-slate-700 dark:text-slate-200">
+            모델 *
+            <input
+              value={registerForm.model}
+              onChange={(event) =>
+                setRegisterForm((current) => ({ ...current, model: event.target.value }))
+              }
+              placeholder="XIAO-NRF52840-VL53L1X"
+              maxLength={100}
+              className="rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm font-normal outline-none dark:border-slate-700 dark:bg-slate-900"
+              required
+            />
+          </label>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <label className="grid gap-1.5 text-sm font-bold text-slate-700 dark:text-slate-200">
+              센서 유형
+              <select
               value={registerForm.type}
               onChange={(event) =>
                 setRegisterForm((current) => ({ ...current, type: event.target.value }))
               }
-              className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none dark:border-slate-800 dark:bg-slate-900"
+              className="rounded-lg border border-slate-300 bg-white px-3 py-3 text-sm font-normal outline-none dark:border-slate-700 dark:bg-slate-900"
             >
               {SENSOR_TYPES.map((type) => (
                 <option key={type} value={type}>
                   {type}
                 </option>
               ))}
-            </select>
-            <select
+              </select>
+            </label>
+            <label className="grid gap-1.5 text-sm font-bold text-slate-700 dark:text-slate-200">
+              통신 방식
+              <select
               value={registerForm.protocol}
               onChange={(event) =>
                 setRegisterForm((current) => ({ ...current, protocol: event.target.value }))
               }
-              className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none dark:border-slate-800 dark:bg-slate-900"
+              className="rounded-lg border border-slate-300 bg-white px-3 py-3 text-sm font-normal outline-none dark:border-slate-700 dark:bg-slate-900"
             >
               {SENSOR_PROTOCOLS.map((protocol) => (
                 <option key={protocol} value={protocol}>
                   {protocol}
                 </option>
               ))}
-            </select>
-            <select
+              </select>
+            </label>
+            <label className="grid gap-1.5 text-sm font-bold text-slate-700 dark:text-slate-200">
+              공간
+              <select
               value={selectedRegisterPlaceId}
               onChange={(event) =>
                 setRegisterForm((current) => ({
@@ -1946,15 +2211,18 @@ export function SensorsScreen() {
                   gatewayId: "",
                 }))
               }
-              className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none dark:border-slate-800 dark:bg-slate-900"
+              className="rounded-lg border border-slate-300 bg-white px-3 py-3 text-sm font-normal outline-none dark:border-slate-700 dark:bg-slate-900"
             >
               {(state.workspace?.spaces ?? []).map((space) => (
                 <option key={space.spaceId} value={space.spaceId}>
                   {space.name}
                 </option>
               ))}
-            </select>
-            <select
+              </select>
+            </label>
+            <label className="grid gap-1.5 text-sm font-bold text-slate-700 dark:text-slate-200">
+              게이트웨이 *
+              <select
               value={registerForm.gatewayId}
               onChange={(event) =>
                 setRegisterForm((current) => ({
@@ -1962,7 +2230,7 @@ export function SensorsScreen() {
                   gatewayId: event.target.value,
                 }))
               }
-              className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none dark:border-slate-800 dark:bg-slate-900"
+              className="rounded-lg border border-slate-300 bg-white px-3 py-3 text-sm font-normal outline-none dark:border-slate-700 dark:bg-slate-900"
               required
             >
               <option value="">게이트웨이 선택</option>
@@ -1971,18 +2239,21 @@ export function SensorsScreen() {
                   {gateway.gatewayId}
                 </option>
               ))}
-            </select>
+              </select>
+            </label>
           </div>
+          {actionError ? <p role="alert" className="rounded-lg bg-rose-50 px-3 py-2 text-sm font-medium text-rose-700 dark:bg-rose-500/10 dark:text-rose-200">{actionError}</p> : null}
           <div className="flex justify-end gap-3 pt-2">
             <button
               type="button"
               onClick={closeRegisterModal}
+              disabled={actionSubmitting}
               className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
             >
-              Cancel
+              취소
             </button>
-            <button className="rounded-xl bg-sky-500 px-4 py-3 text-sm font-semibold text-white transition hover:bg-sky-600">
-              Add Sensor
+            <button type="submit" disabled={actionSubmitting} className="rounded-lg bg-blue-600 px-4 py-3 text-sm font-bold text-white transition hover:bg-blue-700 disabled:cursor-wait disabled:opacity-60">
+              {actionSubmitting ? "등록 중..." : "센서 등록"}
             </button>
           </div>
         </form>
@@ -1990,7 +2261,7 @@ export function SensorsScreen() {
 
       <ModalFrame
         open={isInstallModalOpen}
-        title="Install / Reassign Sensor"
+        title="센서 배치 변경"
         description="선택한 센서를 원하는 공간과 게이트웨이에 연결합니다."
         onClose={closeInstallModal}
       >
@@ -2025,30 +2296,35 @@ export function SensorsScreen() {
             })();
           }}
         >
-          <select
-            value={installForm.sensorId}
-            onChange={(event) => {
-              const nextSensorId = event.target.value;
-              const selectedSensor = state.workspace?.sensors.find((sensor) => sensor.sensorId === nextSensorId);
-              setInstallForm((current) => ({
-                ...current,
-                sensorId: nextSensorId,
-                placeId: selectedSensor?.placeId ?? current.placeId,
-                gatewayId: selectedSensor?.gatewayId ?? "",
-              }));
-            }}
-            className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none dark:border-slate-800 dark:bg-slate-900"
-            required
-          >
-            <option value="">센서 선택</option>
-            {state.workspace?.sensors.map((sensor) => (
-              <option key={sensor.sensorId} value={sensor.sensorId}>
-                {sensor.sensorId}
-              </option>
-            ))}
-          </select>
-          <div className="grid grid-cols-2 gap-3">
+          <label className="grid gap-1.5 text-sm font-bold text-slate-700 dark:text-slate-200">
+            센서 *
             <select
+              value={installForm.sensorId}
+              onChange={(event) => {
+                const nextSensorId = event.target.value;
+                const selectedSensor = state.workspace?.sensors.find((sensor) => sensor.sensorId === nextSensorId);
+                setInstallForm((current) => ({
+                  ...current,
+                  sensorId: nextSensorId,
+                  placeId: selectedSensor?.placeId ?? current.placeId,
+                  gatewayId: selectedSensor?.gatewayId ?? "",
+                }));
+              }}
+              className="rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm font-normal outline-none dark:border-slate-700 dark:bg-slate-900"
+              required
+            >
+              <option value="">센서 선택</option>
+              {state.workspace?.sensors.map((sensor) => (
+                <option key={sensor.sensorId} value={sensor.sensorId}>
+                  {sensor.sensorId}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="grid gap-1.5 text-sm font-bold text-slate-700 dark:text-slate-200">
+              공간 *
+              <select
               value={selectedInstallPlaceId}
               onChange={(event) =>
                 setInstallForm((current) => ({
@@ -2057,15 +2333,18 @@ export function SensorsScreen() {
                   gatewayId: "",
                 }))
               }
-              className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none dark:border-slate-800 dark:bg-slate-900"
+              className="rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm font-normal outline-none dark:border-slate-700 dark:bg-slate-900"
             >
               {(state.workspace?.spaces ?? []).map((space) => (
                 <option key={space.spaceId} value={space.spaceId}>
                   {space.name}
                 </option>
               ))}
-            </select>
-            <select
+              </select>
+            </label>
+            <label className="grid gap-1.5 text-sm font-bold text-slate-700 dark:text-slate-200">
+              게이트웨이 *
+              <select
               value={installForm.gatewayId}
               onChange={(event) =>
                 setInstallForm((current) => ({
@@ -2073,7 +2352,7 @@ export function SensorsScreen() {
                   gatewayId: event.target.value,
                 }))
               }
-              className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none dark:border-slate-800 dark:bg-slate-900"
+              className="rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm font-normal outline-none dark:border-slate-700 dark:bg-slate-900"
               required
             >
               <option value="">게이트웨이 선택</option>
@@ -2082,18 +2361,21 @@ export function SensorsScreen() {
                   {gateway.gatewayId}
                 </option>
               ))}
-            </select>
+              </select>
+            </label>
           </div>
+          {actionError ? <p role="alert" className="rounded-lg bg-rose-50 px-3 py-2 text-sm font-medium text-rose-700 dark:bg-rose-500/10 dark:text-rose-200">{actionError}</p> : null}
           <div className="flex justify-end gap-3 pt-2">
             <button
               type="button"
               onClick={closeInstallModal}
+              disabled={actionSubmitting}
               className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
             >
-              Cancel
+              취소
             </button>
-            <button className="rounded-xl bg-sky-500 px-4 py-3 text-sm font-semibold text-white transition hover:bg-sky-600">
-              Apply Install Mapping
+            <button type="submit" disabled={actionSubmitting} className="rounded-lg bg-blue-600 px-4 py-3 text-sm font-bold text-white transition hover:bg-blue-700 disabled:cursor-wait disabled:opacity-60">
+              {actionSubmitting ? "적용 중..." : "배치 적용"}
             </button>
           </div>
         </form>
@@ -2101,8 +2383,10 @@ export function SensorsScreen() {
 
       <ModalFrame
         open={isCommandModalOpen}
-        title="Send Command"
-        description="명령을 대기열에 등록하면 gateway scanner가 BLE GATT로 전달하고 ACK를 회수합니다."
+        title="센서 명령 전송"
+        description={isBleCommandTarget
+          ? "명령을 대기열에 등록하면 gateway scanner가 BLE GATT로 전달하고 ACK를 회수합니다."
+          : "명령을 센서 대기열에 등록합니다. 실제 전달 방식과 ACK 지원 여부는 대상 프로토콜 연동에 따릅니다."}
         onClose={closeCommandModal}
       >
         <form
@@ -2119,6 +2403,24 @@ export function SensorsScreen() {
             ) {
               setActionError("선택한 명령에 필요한 payload를 입력해 주세요.");
               return;
+            }
+            if (isBleCommandTarget && commandForm.commandType === "SET_THRESHOLD") {
+              const parts = commandForm.commandPayload.split(",").map((part) => Number(part.trim()));
+              if (
+                parts.length !== 2
+                || parts.some((part) => !Number.isInteger(part) || part < 40 || part > 4000)
+                || parts[0] >= parts[1]
+              ) {
+                setActionError("BLE 거리 임계값은 40~4000mm 범위의 enterMm,exitMm 형식이며 enterMm가 더 작아야 합니다.");
+                return;
+              }
+            }
+            if (isBleCommandTarget && commandForm.commandType === "SET_SAMPLE_INTERVAL") {
+              const interval = Number(commandForm.commandPayload.trim());
+              if (!Number.isInteger(interval) || interval < 200 || interval > 60000) {
+                setActionError("BLE 측정 간격은 200~60000 사이의 밀리초 정수로 입력해 주세요.");
+                return;
+              }
             }
 
             void (async () => {
@@ -2138,12 +2440,16 @@ export function SensorsScreen() {
             })();
           }}
         >
-          <select
+          <label className="grid gap-1.5 text-sm font-bold text-slate-700 dark:text-slate-200">
+            대상 센서 *
+            <select
             value={commandForm.sensorId}
-            onChange={(event) =>
-              setCommandForm((current) => ({ ...current, sensorId: event.target.value }))
-            }
-            className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none dark:border-slate-800 dark:bg-slate-900"
+            onChange={(event) => setCommandForm({
+              sensorId: event.target.value,
+              commandType: SENSOR_COMMAND_TYPES[0],
+              commandPayload: "",
+            })}
+            className="rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm font-normal outline-none dark:border-slate-700 dark:bg-slate-900"
             required
           >
             <option value="">센서 선택</option>
@@ -2152,22 +2458,34 @@ export function SensorsScreen() {
                 {sensor.sensorId}
               </option>
             ))}
-          </select>
-          <select
+            </select>
+          </label>
+          <label className="grid gap-1.5 text-sm font-bold text-slate-700 dark:text-slate-200">
+            명령 *
+            <select
             value={commandForm.commandType}
-            onChange={(event) =>
-              setCommandForm((current) => ({ ...current, commandType: event.target.value }))
-            }
-            className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none dark:border-slate-800 dark:bg-slate-900"
+            onChange={(event) => {
+              setActionError(null);
+              setCommandForm((current) => ({
+                ...current,
+                commandType: event.target.value,
+                commandPayload: "",
+              }));
+            }}
+            className="rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm font-normal outline-none dark:border-slate-700 dark:bg-slate-900"
           >
             {SENSOR_COMMAND_TYPES.map((command) => (
-              <option key={command} value={command}>
+              <option key={command} value={command} disabled={isBleCommandTarget && command === "SYNC_TIME"}>
                 {command}
               </option>
             ))}
-          </select>
-          <textarea
+            </select>
+          </label>
+          <label className="grid gap-1.5 text-sm font-bold text-slate-700 dark:text-slate-200">
+            명령 값
+            <textarea
             value={commandForm.commandPayload}
+            disabled={!["SET_THRESHOLD", "SET_SAMPLE_INTERVAL"].includes(commandForm.commandType)}
             onChange={(event) =>
               setCommandForm((current) => ({
                 ...current,
@@ -2182,18 +2500,21 @@ export function SensorsScreen() {
                   : "이 명령은 payload가 필요하지 않습니다."
             }
             rows={4}
-            className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none dark:border-slate-800 dark:bg-slate-900"
-          />
+            className="rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm font-normal outline-none disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:disabled:bg-slate-800"
+            />
+          </label>
+          {actionError ? <p role="alert" className="rounded-lg bg-rose-50 px-3 py-2 text-sm font-medium text-rose-700 dark:bg-rose-500/10 dark:text-rose-200">{actionError}</p> : null}
           <div className="flex justify-end gap-3 pt-2">
             <button
               type="button"
               onClick={closeCommandModal}
+              disabled={actionSubmitting}
               className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
             >
-              Cancel
+              취소
             </button>
-            <button className="rounded-xl bg-amber-500 px-4 py-3 text-sm font-semibold text-white transition hover:bg-amber-600">
-              Send Command
+            <button type="submit" disabled={actionSubmitting} className="rounded-lg bg-amber-600 px-4 py-3 text-sm font-bold text-white transition hover:bg-amber-700 disabled:cursor-wait disabled:opacity-60">
+              {actionSubmitting ? "등록 중..." : "명령 대기열에 등록"}
             </button>
           </div>
         </form>
@@ -2202,6 +2523,7 @@ export function SensorsScreen() {
   );
 }
 
+/** 단일 센서의 identity, 배치, 감지 상태와 최근 관측 정보를 표시한다. */
 export function SensorDetailScreen({ sensorId }: { sensorId: string }) {
   const state = useWorkspaceLoader();
   const sensor = useMemo(
@@ -2219,14 +2541,10 @@ export function SensorDetailScreen({ sensorId }: { sensorId: string }) {
     }
 
     const telemetry = space.recentTelemetry.filter((item) => item.sensorId === sensor?.sensorId);
-    if (telemetry.length > 0) {
-      return telemetry.slice(0, 8).map((item) => ({
-        label: formatShortTime(item.measuredAt ?? item.receivedAt),
-        value: item.occupied ? 100 : 0,
-      }));
-    }
-
-    return space.trend.slice(0, 8);
+    return telemetry.slice(0, 8).map((item) => ({
+      label: formatShortTime(item.measuredAt ?? item.receivedAt),
+      value: item.occupied ? 100 : 0,
+    }));
   }, [sensor?.sensorId, space]);
 
   const logs = useMemo(
@@ -2237,13 +2555,13 @@ export function SensorDetailScreen({ sensorId }: { sensorId: string }) {
   return (
     <ShellContent
       activeKey="sensors"
-      title={sensor ? `${sensor.sensorId} Sensor Detail` : "Sensor Detail"}
+      title={sensor ? `${sensor.sensorId} 상세` : "센서 상세"}
       subtitle="센서별 감지 이력, 배터리, 상태 로그를 상세하게 확인합니다."
       state={state}
       toolbar={
         <Link
           href="/sensors"
-          className="rounded-full border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-slate-300 transition hover:border-white/20 hover:bg-white/[0.08] hover:text-white"
+          className="inline-flex min-h-11 items-center rounded-lg border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700 transition hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
         >
           센서 목록으로
         </Link>
@@ -2253,26 +2571,26 @@ export function SensorDetailScreen({ sensorId }: { sensorId: string }) {
         <div className="space-y-6">
           <div className="grid gap-4 xl:grid-cols-4">
             <MetricCard
-              label="Detection Status"
-              value={sensor.detectionStatus}
+              label="감지 상태"
+              value={detectionStatusLabel(sensor.detectionStatus)}
               hint={`${space.name} · ${textOrFallback(sensor.locationLabel, "위치 미지정")}`}
             />
             <MetricCard
-              label="Gateway Mapping"
-              value={textOrFallback(sensor.gatewayId, "Unassigned")}
-              hint={textOrFallback(sensor.positionCode ?? sensor.locationLabel, "Position not set")}
+              label="연결 게이트웨이"
+              value={textOrFallback(sensor.gatewayId, "미배치")}
+              hint={textOrFallback(sensor.positionCode ?? sensor.locationLabel, "위치 미지정")}
               tone="emerald"
             />
             <MetricCard
-              label="Battery Level"
-              value={sensor.batteryPercent !== null ? `${sensor.batteryPercent.toFixed(0)}%` : "N/A"}
+              label="배터리"
+              value={sensor.batteryPercent !== null ? `${sensor.batteryPercent.toFixed(0)}%` : "확인 불가"}
               hint={sensor.batteryLabel}
               tone="orange"
             />
             <MetricCard
-              label="Last Heartbeat"
-              value={formatRelative(sensor.lastHeartbeatAt)}
-              hint={formatDateTime(sensor.lastHeartbeatAt)}
+              label="마지막 관측"
+              value={formatRelative(sensor.lastObservedAt)}
+              hint={formatDateTime(sensor.lastObservedAt)}
               tone="rose"
             />
           </div>
@@ -2281,11 +2599,11 @@ export function SensorDetailScreen({ sensorId }: { sensorId: string }) {
             <Panel>
               <div className="flex items-center justify-between">
                 <div>
-                  <h2 className="text-lg font-semibold text-white">Occupancy Historical Data</h2>
-                  <p className="mt-1 text-sm text-slate-400">최근 감지 패턴을 시계열로 표시합니다.</p>
+                  <h2 className="text-lg font-bold text-slate-900 dark:text-white">최근 감지 이력</h2>
+                  <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">최근 수신값을 사용 중 100%, 비어 있음 0%로 표시합니다.</p>
                 </div>
                 <StatusBadge tone={sensor.status === "ACTIVE" ? "success" : "warning"}>
-                  {sensor.status}
+                  {sensorLifecycleLabel(sensor.status)}
                 </StatusBadge>
               </div>
               <div className="mt-5">
@@ -2295,31 +2613,32 @@ export function SensorDetailScreen({ sensorId }: { sensorId: string }) {
 
             <div className="space-y-6">
               <Panel>
-                <h2 className="text-lg font-semibold text-white">Sensor Profile</h2>
+                <h2 className="text-lg font-bold text-slate-900 dark:text-white">센서 정보</h2>
                 <dl className="mt-4 grid grid-cols-[130px_1fr] gap-y-3 text-sm">
-                  <dt className="text-slate-500">Space</dt>
-                  <dd className="text-white">{space.name}</dd>
-                  <dt className="text-slate-500">Gateway</dt>
-                  <dd className="text-white">{textOrFallback(sensor.gatewayId, "미등록")}</dd>
-                  <dt className="text-slate-500">Protocol</dt>
-                  <dd className="text-white">{sensor.protocol}</dd>
-                  <dt className="text-slate-500">Firmware</dt>
-                  <dd className="text-white">{textOrFallback(sensor.firmwareVersion, "미등록")}</dd>
-                  <dt className="text-slate-500">MAC Address</dt>
-                  <dd className="text-white">{sensor.macAddress ?? "N/A"}</dd>
+                  <dt className="text-slate-500">공간</dt>
+                  <dd className="font-medium text-slate-900 dark:text-white">{space.name}</dd>
+                  <dt className="text-slate-500">게이트웨이</dt>
+                  <dd className="font-medium text-slate-900 dark:text-white">{textOrFallback(sensor.gatewayId, "미등록")}</dd>
+                  <dt className="text-slate-500">통신 방식</dt>
+                  <dd className="font-medium text-slate-900 dark:text-white">{sensor.protocol}</dd>
+                  <dt className="text-slate-500">펌웨어</dt>
+                  <dd className="font-medium text-slate-900 dark:text-white">{textOrFallback(sensor.firmwareVersion, "미등록")}</dd>
+                  <dt className="text-slate-500">MAC 주소</dt>
+                  <dd className="break-all font-mono text-slate-900 dark:text-white">{sensor.macAddress ?? "확인 불가"}</dd>
                 </dl>
               </Panel>
 
               <Panel>
-                <h2 className="text-lg font-semibold text-white">Event Logs</h2>
+                <h2 className="text-lg font-bold text-slate-900 dark:text-white">관련 이벤트</h2>
                 <div className="mt-4 space-y-3">
                   {logs.map((log) => (
-                    <div key={log.id} className="rounded-[22px] border border-white/8 bg-white/[0.03] px-4 py-4">
-                      <p className="font-medium text-white">{log.eventType}</p>
-                      <p className="mt-1 text-sm text-slate-300">{log.details}</p>
+                    <div key={log.id} className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-4 dark:border-slate-800 dark:bg-slate-800/40">
+                      <p className="font-bold text-slate-900 dark:text-white">{log.eventType}</p>
+                      <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">{log.details}</p>
                       <p className="mt-2 text-xs text-slate-500">{formatDateTime(log.timestamp)}</p>
                     </div>
                   ))}
+                  {logs.length === 0 ? <p className="text-sm text-slate-500 dark:text-slate-400">관련 이벤트가 없습니다.</p> : null}
                 </div>
               </Panel>
             </div>
@@ -2335,6 +2654,7 @@ export function SensorDetailScreen({ sensorId }: { sensorId: string }) {
   );
 }
 
+/** gateway 상태·부하·통신 품질을 비교하고 신규 gateway를 등록한다. */
 export function GatewaysScreen() {
   const state = useWorkspaceLoader();
   const [query, setQuery] = useState("");
@@ -2365,21 +2685,22 @@ export function GatewaysScreen() {
     return list.filter(
       (gateway) =>
         gateway.gatewayId.toLowerCase().includes(keyword) ||
+        (gateway.gatewayName?.toLowerCase() ?? "").includes(keyword) ||
         gateway.spaceName.toLowerCase().includes(keyword) ||
-        (gateway.linkedBridge?.toLowerCase() ?? "").includes(keyword),
+        (gateway.linkedBridge?.toLowerCase() ?? "").includes(keyword) ||
+        (gateway.ipAddress?.toLowerCase() ?? "").includes(keyword) ||
+        (gateway.locationLabel?.toLowerCase() ?? "").includes(keyword) ||
+        (gateway.regionCode?.toLowerCase() ?? "").includes(keyword),
     );
   }, [deferredQuery, state.workspace?.gateways]);
   const activeGatewayCount = gateways.filter((gateway) => gatewayDisplayStatus(gateway) === "Active").length;
   const warningGatewayCount = gateways.filter((gateway) => gatewayDisplayStatus(gateway) === "Warning").length;
   const offlineGatewayCount = gateways.filter((gateway) => gatewayDisplayStatus(gateway) === "Offline").length;
   const topSensorGateways = gateways
+    .filter((gateway) => gatewayLoadPercent(gateway) != null)
     .slice()
-    .sort((left, right) => gatewayLoadPercent(right) - gatewayLoadPercent(left))
+    .sort((left, right) => (gatewayLoadPercent(right) ?? 0) - (gatewayLoadPercent(left) ?? 0))
     .slice(0, 7);
-  const maxConnectedSensors = Math.max(
-    ...topSensorGateways.map((gateway) => gatewayLoadPercent(gateway)),
-    1,
-  );
   const recentGatewayLogs = (state.workspace?.logs ?? [])
     .filter((log) => Boolean(log.gatewayId))
     .slice(0, 5);
@@ -2429,12 +2750,6 @@ export function GatewaysScreen() {
       return;
     }
 
-    const headers = await state.resolveAuthHeaders();
-    if (!headers) {
-      setCreateError("인증 세션을 확인할 수 없습니다.");
-      return;
-    }
-
     const payload: CreateGatewayInput = {
       gatewayId: gatewayForm.gatewayId.trim(),
       gatewayName: gatewayForm.gatewayName.trim(),
@@ -2451,6 +2766,11 @@ export function GatewaysScreen() {
 
     setCreateSubmitting(true);
     try {
+      const headers = await state.resolveAuthHeaders();
+      if (!headers) {
+        setCreateError("인증 세션을 확인할 수 없습니다.");
+        return;
+      }
       await createGateway(headers, payload);
       await state.reload();
       setCreateModalOpen(false);
@@ -2465,13 +2785,13 @@ export function GatewaysScreen() {
   return (
     <ShellContent
       activeKey="gateways"
-      title="Gateway List"
-      subtitle="Inspect infrastructure hubs, sensor load, and recent gateway incidents."
+      title="게이트웨이 관리"
+      subtitle="게이트웨이 연결 상태와 센서 수용량, 최근 통신 이벤트를 확인합니다."
       state={state}
       toolbar={
         <>
-          {searchField(query, setQuery, "Search gateways, IPs, or locations...")}
-          {toolButton("New Gateway", openCreateModal, "primary", (state.workspace?.spaces.length ?? 0) === 0)}
+          {searchField(query, setQuery, "이름, ID, IP, 공간 또는 위치 검색")}
+          {toolButton("게이트웨이 등록", openCreateModal, "primary", (state.workspace?.spaces.length ?? 0) === 0)}
         </>
       }
     >
@@ -2479,26 +2799,26 @@ export function GatewaysScreen() {
         <div className="space-y-6">
           <div className="grid gap-4 lg:grid-cols-4">
             <MetricCard
-              label="Total Gateways"
+              label="전체 게이트웨이"
               value={formatNumber(gateways.length)}
-              hint="Registered infrastructure nodes"
+              hint="현재 관리자 공간에 등록된 장비 수"
             />
             <MetricCard
-              label="Active Status"
+              label="정상"
               value={formatNumber(activeGatewayCount)}
-              hint="Currently responding normally"
+              hint="최근 상태가 온라인인 장비"
               tone="emerald"
             />
             <MetricCard
-              label="High Load Hubs"
+              label="주의"
               value={formatNumber(warningGatewayCount)}
-              hint="Near capacity or degraded packet quality"
+              hint="최근 하트비트는 유효하지만 WARNING 상태를 보고한 장비"
               tone="orange"
             />
             <MetricCard
-              label="Critical Offline"
+              label="오프라인"
               value={formatNumber(offlineGatewayCount)}
-              hint="Requires network intervention"
+              hint="하트비트 지연 또는 오프라인 보고"
               tone="rose"
             />
           </div>
@@ -2507,34 +2827,23 @@ export function GatewaysScreen() {
             <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 px-6 py-4 dark:border-slate-800">
               <div className="flex items-center gap-2">
                 <h2 className="text-lg font-bold text-slate-900 dark:text-white">
-                  Infrastructure Gateways
+                  게이트웨이 목록
                 </h2>
                 <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-                  Real-time
+                  최근 상태
                 </span>
               </div>
-              <div className="flex items-center gap-2">
-                <div className="flex rounded-lg border border-slate-200 p-1 dark:border-slate-800">
-                  <button className="rounded-md bg-slate-100 px-3 py-1.5 text-xs font-bold text-sky-600 dark:bg-slate-800 dark:text-sky-300">
-                    All
-                  </button>
-                  <button className="px-3 py-1.5 text-xs font-medium text-slate-500">Hubs</button>
-                  <button className="px-3 py-1.5 text-xs font-medium text-slate-500">Edges</button>
-                </div>
-                <button className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 dark:border-slate-800 dark:text-slate-300">
-                  Filter
-                </button>
-              </div>
+              <span className="text-xs text-slate-500 dark:text-slate-400">검색 결과 {gateways.length}개</span>
             </div>
             <div className="overflow-x-auto">
               <table className="min-w-full text-left">
                 <thead>
                   <tr className="bg-slate-50/70 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 dark:bg-slate-800/50 dark:text-slate-400">
-                    <th className="px-6 py-4">Gateway Name</th>
-                    <th className="px-6 py-4">IP Address</th>
-                    <th className="px-6 py-4">Sensor Load</th>
-                    <th className="px-6 py-4">Latency</th>
-                    <th className="px-6 py-4 text-right">Status</th>
+                    <th className="px-6 py-4">게이트웨이</th>
+                    <th className="px-6 py-4">IP 주소</th>
+                    <th className="px-6 py-4">센서 수용량</th>
+                    <th className="px-6 py-4">지연 시간</th>
+                    <th className="px-6 py-4 text-right">상태</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -2545,7 +2854,7 @@ export function GatewaysScreen() {
                     >
                       <td className="px-6 py-4">
                         <Link href={`/gateways/${gateway.gatewayId}`} className="flex items-center gap-3">
-                          <div className="grid size-8 place-items-center rounded-lg bg-sky-500/10 text-sky-500 dark:bg-sky-400/10 dark:text-sky-300">
+                          <div className="grid size-8 place-items-center rounded-lg bg-blue-500/10 text-blue-500 dark:bg-blue-400/10 dark:text-blue-300">
                             <Icon name="gateways" className="size-4" />
                           </div>
                           <div>
@@ -2566,74 +2875,35 @@ export function GatewaysScreen() {
                           <div className="flex justify-between text-[10px] font-bold">
                             <span>
                               {formatNumber(gateway.currentSensorLoad ?? gateway.connectedSensors.length)}/
-                              {formatNumber(gateway.sensorCapacity ?? gateway.connectedSensors.length)}
+                              {gateway.sensorCapacity != null ? formatNumber(gateway.sensorCapacity) : "확인 불가"}
                             </span>
-                            <span className={cn(gatewayLoadPercent(gateway) >= 90 ? "text-amber-500" : "text-sky-500")}>
-                              {gatewayLoadPercent(gateway)}%
+                            <span className={cn((gatewayLoadPercent(gateway) ?? 0) > 100 ? "text-amber-500" : "text-blue-500")}>
+                              {formatGatewayLoadPercent(gateway)}
                             </span>
                           </div>
                           <div className="h-1.5 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
                             <div
                               className={cn(
                                 "h-full rounded-full",
-                                gatewayLoadPercent(gateway) >= 90 ? "bg-amber-500" : "bg-sky-500",
+                                (gatewayLoadPercent(gateway) ?? 0) > 100 ? "bg-amber-500" : "bg-blue-500",
                               )}
-                              style={{ width: `${Math.max(gatewayLoadPercent(gateway), 0)}%` }}
+                              style={{ width: `${Math.min(gatewayLoadPercent(gateway) ?? 0, 100)}%` }}
                             />
                           </div>
                         </div>
                       </td>
                       <td className="px-6 py-4">
-                        <div className="flex items-center gap-2">
-                          <span
-                            className={cn(
-                              "text-sm font-semibold",
-                              gateway.status === "Offline" ? "text-slate-500" : "text-slate-800 dark:text-slate-200",
-                            )}
-                          >
-                            {gateway.status === "Offline"
-                              ? "Timed Out"
-                              : gateway.latencyMs != null
-                                ? `${gateway.latencyMs}ms`
-                                : "N/A"}
-                          </span>
-                          <div className={cn("flex gap-0.5", gateway.status === "Offline" && "opacity-30")}>
-                            <div
-                              className={cn(
-                                "h-3 w-1 rounded-full",
-                                gateway.status === "Offline"
-                                  ? "bg-slate-400"
-                                  : gateway.latencyMs != null && gateway.latencyMs >= 40
-                                    ? "bg-amber-500"
-                                    : "bg-sky-500",
-                              )}
-                            />
-                            <div
-                              className={cn(
-                                "h-3 w-1 rounded-full",
-                                gateway.status === "Offline"
-                                  ? "bg-slate-400"
-                                  : gateway.latencyMs != null && gateway.latencyMs >= 40
-                                    ? "bg-amber-500"
-                                    : "bg-sky-500/30",
-                              )}
-                            />
-                            <div
-                              className={cn(
-                                "h-3 w-1 rounded-full",
-                                gateway.status === "Offline"
-                                  ? "bg-slate-400"
-                                  : gateway.latencyMs != null && gateway.latencyMs >= 40
-                                    ? "bg-amber-500/30"
-                                    : "bg-sky-500/30",
-                              )}
-                            />
-                          </div>
-                        </div>
+                        <span className={cn("text-sm font-semibold", gateway.status === "Offline" ? "text-slate-500" : "text-slate-800 dark:text-slate-200")}>
+                          {gateway.status === "Offline"
+                            ? "응답 없음"
+                            : gateway.latencyMs != null
+                              ? `${gateway.latencyMs}ms`
+                              : "확인 불가"}
+                        </span>
                       </td>
                       <td className="px-6 py-4 text-right">
                         <StatusBadge tone={gatewayDisplayTone(gateway)}>
-                          {gatewayDisplayStatus(gateway)}
+                          {gatewayDisplayLabel(gateway)}
                         </StatusBadge>
                       </td>
                     </tr>
@@ -2641,60 +2911,57 @@ export function GatewaysScreen() {
                 </tbody>
               </table>
             </div>
-            <div className="flex items-center justify-between border-t border-slate-200 px-6 py-4 text-xs text-slate-500 dark:border-slate-800 dark:text-slate-400">
-              <p>Showing 1 to {gateways.length} of {gateways.length} gateways</p>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  disabled
-                  className="rounded-lg border border-slate-200 p-1.5 text-slate-400 disabled:opacity-50 dark:border-slate-800"
-                >
-                  <Icon name="arrow" className="size-3 rotate-180" />
-                </button>
-                <button className="rounded-lg bg-sky-500 px-3 py-1 text-xs font-bold text-white">
-                  1
-                </button>
-                <button
-                  type="button"
-                  disabled
-                  className="rounded-lg border border-slate-200 p-1.5 text-slate-400 disabled:opacity-50 dark:border-slate-800"
-                >
-                  <Icon name="arrow" className="size-3" />
-                </button>
+            {gateways.length === 0 ? (
+              <div className="border-t border-slate-200 px-6 py-8 text-center text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
+                <p>
+                  {query.trim()
+                    ? "검색 조건에 맞는 게이트웨이가 없습니다."
+                    : (state.workspace?.spaces.length ?? 0) === 0
+                      ? "게이트웨이를 등록하려면 먼저 공간을 등록해 주세요."
+                      : "등록된 게이트웨이가 없습니다."}
+                </p>
+                {!query.trim() && (state.workspace?.spaces.length ?? 0) === 0 ? (
+                  <Link href="/areas" className="mt-3 inline-flex min-h-10 items-center font-bold text-blue-700 hover:underline dark:text-blue-300">
+                    공간 관리로 이동
+                  </Link>
+                ) : null}
               </div>
-            </div>
+            ) : null}
           </Panel>
 
           <div className="grid gap-6 xl:grid-cols-2">
             <Panel>
-              <h2 className="text-lg font-bold text-slate-900 dark:text-white">Network Load Distribution</h2>
-              <div className="mt-6 flex h-48 items-end justify-between gap-2 px-4">
-                {topSensorGateways.map((gateway) => (
-                  <div key={gateway.gatewayId} className="relative flex flex-1 flex-col justify-end">
-                    <div className="group relative h-full rounded-t-sm bg-sky-500/20">
+              <h2 className="text-lg font-bold text-slate-900 dark:text-white">센서 수용량 사용률</h2>
+              {topSensorGateways.length > 0 ? (
+                <div className="mt-6 flex h-48 items-end justify-between gap-2 px-4">
+                  {topSensorGateways.map((gateway) => (
+                  <div key={gateway.gatewayId} className="relative flex h-full flex-1 flex-col justify-end">
+                    <div className="relative h-full rounded-t-sm bg-blue-500/20">
+                      <span className="absolute inset-x-0 top-1 z-10 text-center text-[10px] font-semibold text-slate-700 dark:text-slate-200">
+                        {formatGatewayLoadPercent(gateway)}
+                      </span>
                       <div
-                        className="absolute inset-x-0 bottom-0 rounded-t-sm bg-sky-500"
+                        className="absolute inset-x-0 bottom-0 rounded-t-sm bg-blue-500"
                         style={{
-                          height: `${Math.max(
-                            18,
-                            Math.round((gatewayLoadPercent(gateway) / maxConnectedSensors) * 100),
-                          )}%`,
+                          height: `${Math.min(gatewayLoadPercent(gateway) ?? 0, 100)}%`,
                         }}
                       />
-                      <div className="absolute -top-8 left-1/2 hidden -translate-x-1/2 rounded bg-slate-800 px-2 py-1 text-[10px] text-white group-hover:block">
-                        {gatewayLoadPercent(gateway)}%
-                      </div>
                     </div>
                     <div className="mt-3 text-center text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">
                       {(gateway.regionCode || gateway.gatewayId).slice(0, 8)}
                     </div>
                   </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="mt-6 text-sm text-slate-500 dark:text-slate-400">
+                  등록된 센서 용량 정보가 없습니다.
+                </p>
+              )}
             </Panel>
 
             <Panel>
-              <h2 className="text-lg font-bold text-slate-900 dark:text-white">Recent Incidents</h2>
+              <h2 className="text-lg font-bold text-slate-900 dark:text-white">최근 게이트웨이 이벤트</h2>
               <div className="mt-5 space-y-3">
                 {recentGatewayLogs.map((log) => (
                   <div key={log.id} className="flex gap-3">
@@ -2734,7 +3001,7 @@ export function GatewaysScreen() {
       )}
       <ModalFrame
         open={isCreateModalOpen}
-        title="Register New Gateway"
+        title="게이트웨이 등록"
         description="게이트웨이는 반드시 하나의 공간에 귀속됩니다. 등록 후 센서를 해당 gatewayId에 매핑할 수 있습니다."
         onClose={closeCreateModal}
         footer={
@@ -2752,46 +3019,58 @@ export function GatewaysScreen() {
                 취소
               </button>
               <button
-                type="button"
-                onClick={() => void submitCreateGateway()}
+                type="submit"
+                form="create-gateway-form"
                 disabled={createSubmitting}
-                className="rounded-xl border border-sky-500/20 bg-[#2b8cee] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#2476ca] disabled:cursor-not-allowed disabled:opacity-60"
+                className="rounded-lg border border-blue-600 bg-blue-600 px-4 py-3 text-sm font-bold text-white transition hover:bg-blue-700 disabled:cursor-wait disabled:opacity-60"
               >
-                {createSubmitting ? "Creating..." : "Create Gateway"}
+                {createSubmitting ? "등록 중..." : "게이트웨이 등록"}
               </button>
             </div>
           </div>
         }
       >
-        <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
+        <form
+          id="create-gateway-form"
+          className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void submitCreateGateway();
+          }}
+        >
           <div className="grid gap-4">
             <label className="grid gap-2">
-              <span className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">Gateway ID</span>
+              <span className="text-sm font-bold text-slate-700 dark:text-slate-200">게이트웨이 ID *</span>
               <input
                 value={gatewayForm.gatewayId}
                 onChange={(event) => setGatewayForm((current) => ({ ...current, gatewayId: event.target.value }))}
                 placeholder="GW-STORE-001"
-                className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-sky-300 dark:border-slate-800 dark:bg-slate-900"
+                required
+                maxLength={50}
+                className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-blue-300 dark:border-slate-800 dark:bg-slate-900"
               />
             </label>
 
             <label className="grid gap-2">
-              <span className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">Gateway Name</span>
+              <span className="text-sm font-bold text-slate-700 dark:text-slate-200">게이트웨이 이름 *</span>
               <input
                 value={gatewayForm.gatewayName}
                 onChange={(event) => setGatewayForm((current) => ({ ...current, gatewayName: event.target.value }))}
-                placeholder="Store Edge Gateway 01"
-                className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-sky-300 dark:border-slate-800 dark:bg-slate-900"
+                placeholder="강남점 엣지 게이트웨이 01"
+                required
+                maxLength={100}
+                className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-blue-300 dark:border-slate-800 dark:bg-slate-900"
               />
             </label>
 
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="grid gap-2">
-                <span className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">Space</span>
+                <span className="text-sm font-bold text-slate-700 dark:text-slate-200">공간 *</span>
                 <select
                   value={gatewayForm.spaceId}
                   onChange={(event) => setGatewayForm((current) => ({ ...current, spaceId: event.target.value }))}
-                  className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-sky-300 dark:border-slate-800 dark:bg-slate-900"
+                  className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-blue-300 dark:border-slate-800 dark:bg-slate-900"
+                  required
                 >
                   <option value="">공간 선택</option>
                   {(state.workspace?.spaces ?? []).map((space) => (
@@ -2802,11 +3081,11 @@ export function GatewaysScreen() {
                 </select>
               </label>
               <label className="grid gap-2">
-                <span className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">Gateway Role</span>
+                <span className="text-sm font-bold text-slate-700 dark:text-slate-200">게이트웨이 역할</span>
                 <select
                   value={gatewayForm.gatewayRole}
                   onChange={(event) => setGatewayForm((current) => ({ ...current, gatewayRole: event.target.value }))}
-                  className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-sky-300 dark:border-slate-800 dark:bg-slate-900"
+                  className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-blue-300 dark:border-slate-800 dark:bg-slate-900"
                 >
                   {GATEWAY_ROLES.map((role) => (
                     <option key={role} value={role}>
@@ -2819,84 +3098,93 @@ export function GatewaysScreen() {
 
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="grid gap-2">
-                <span className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">IP Address</span>
+                <span className="text-sm font-bold text-slate-700 dark:text-slate-200">IP 주소</span>
                 <input
                   value={gatewayForm.ipAddress}
                   onChange={(event) => setGatewayForm((current) => ({ ...current, ipAddress: event.target.value }))}
                   placeholder="192.168.0.24"
-                  className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-sky-300 dark:border-slate-800 dark:bg-slate-900"
+                  maxLength={45}
+                  className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-blue-300 dark:border-slate-800 dark:bg-slate-900"
                 />
               </label>
               <label className="grid gap-2">
-                <span className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">Sensor Capacity</span>
+                <span className="text-sm font-bold text-slate-700 dark:text-slate-200">센서 수용량 *</span>
                 <input
                   value={gatewayForm.sensorCapacity}
                   onChange={(event) => setGatewayForm((current) => ({ ...current, sensorCapacity: event.target.value }))}
-                  inputMode="numeric"
+                  type="number"
+                  min={1}
+                  step={1}
+                  required
                   placeholder="64"
-                  className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-sky-300 dark:border-slate-800 dark:bg-slate-900"
+                  className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-blue-300 dark:border-slate-800 dark:bg-slate-900"
                 />
               </label>
             </div>
           </div>
 
           <div className="grid gap-4">
-            <Panel className="rounded-[22px] border border-sky-100 bg-[linear-gradient(180deg,#f8fbff_0%,#edf5ff_100%)] shadow-none dark:border-sky-500/10 dark:bg-[linear-gradient(180deg,#101a28_0%,#0d1724_100%)]">
-              <p className="text-[11px] font-bold uppercase tracking-[0.24em] text-sky-500 dark:text-sky-300">
-                Runtime Meta
+            <Panel className="border-blue-100 bg-blue-50 shadow-none dark:border-blue-500/10 dark:bg-blue-500/5">
+              <p className="text-[11px] font-bold uppercase tracking-[0.24em] text-blue-500 dark:text-blue-300">
+                런타임 정보
               </p>
               <div className="mt-4 grid gap-4">
                 <label className="grid gap-2">
-                  <span className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">Region Code</span>
+                  <span className="text-sm font-bold text-slate-700 dark:text-slate-200">지역 코드</span>
                   <input
                     value={gatewayForm.regionCode}
                     onChange={(event) => setGatewayForm((current) => ({ ...current, regionCode: event.target.value }))}
-                    placeholder="NORTH"
-                    className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-sky-300 dark:border-slate-800 dark:bg-slate-900"
+                    placeholder="SEOUL-GANGNAM"
+                    maxLength={50}
+                    className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-blue-300 dark:border-slate-800 dark:bg-slate-900"
                   />
                 </label>
                 <label className="grid gap-2">
-                  <span className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">Location Label</span>
+                  <span className="text-sm font-bold text-slate-700 dark:text-slate-200">설치 위치</span>
                   <input
                     value={gatewayForm.locationLabel}
                     onChange={(event) => setGatewayForm((current) => ({ ...current, locationLabel: event.target.value }))}
-                    placeholder="North aisle rack"
-                    className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-sky-300 dark:border-slate-800 dark:bg-slate-900"
+                    placeholder="북측 통로 장비함"
+                    maxLength={100}
+                    className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-blue-300 dark:border-slate-800 dark:bg-slate-900"
                   />
                 </label>
                 <label className="grid gap-2">
-                  <span className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">Firmware Version</span>
+                  <span className="text-sm font-bold text-slate-700 dark:text-slate-200">펌웨어 버전</span>
                   <input
                     value={gatewayForm.firmwareVersion}
                     onChange={(event) => setGatewayForm((current) => ({ ...current, firmwareVersion: event.target.value }))}
                     placeholder="v1.0.0"
-                    className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-sky-300 dark:border-slate-800 dark:bg-slate-900"
+                    maxLength={50}
+                    className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-blue-300 dark:border-slate-800 dark:bg-slate-900"
                   />
                 </label>
                 <label className="grid gap-2">
-                  <span className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">Linked Bridge</span>
+                  <span className="text-sm font-bold text-slate-700 dark:text-slate-200">연결 브리지</span>
                   <input
                     value={gatewayForm.linkedBridge}
                     onChange={(event) => setGatewayForm((current) => ({ ...current, linkedBridge: event.target.value }))}
                     placeholder="ble://store-001"
-                    className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-sky-300 dark:border-slate-800 dark:bg-slate-900"
+                    maxLength={255}
+                    className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-blue-300 dark:border-slate-800 dark:bg-slate-900"
                   />
                 </label>
               </div>
             </Panel>
 
             <label className="grid gap-2">
-              <span className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">Description</span>
+              <span className="text-sm font-bold text-slate-700 dark:text-slate-200">설명</span>
               <textarea
                 value={gatewayForm.description}
                 onChange={(event) => setGatewayForm((current) => ({ ...current, description: event.target.value }))}
                 rows={6}
                 placeholder="의자 센서 BLE 스캔과 cloud sync를 담당하는 게이트웨이 설명"
-                className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-sky-300 dark:border-slate-800 dark:bg-slate-900"
+                maxLength={1000}
+                className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-blue-300 dark:border-slate-800 dark:bg-slate-900"
               />
             </label>
 
-            <div className="rounded-[22px] border border-slate-200 bg-slate-50/80 p-4 text-sm text-slate-500 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-400">
+            <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-4 text-sm text-slate-500 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-400">
               <p className="font-semibold text-slate-900 dark:text-white">등록 규칙</p>
               <ul className="mt-3 space-y-2">
                 <li>게이트웨이는 반드시 한 공간에 귀속됩니다.</li>
@@ -2911,12 +3199,13 @@ export function GatewaysScreen() {
               </div>
             ) : null}
           </div>
-        </div>
+        </form>
       </ModalFrame>
     </ShellContent>
   );
 }
 
+/** 단일 gateway의 runtime 상태와 해당 gateway에 연결된 센서를 표시한다. */
 export function GatewayDetailScreen({ gatewayId }: { gatewayId: string }) {
   const state = useWorkspaceLoader();
   const gateway = useMemo(
@@ -2942,13 +3231,13 @@ export function GatewayDetailScreen({ gatewayId }: { gatewayId: string }) {
   return (
     <ShellContent
       activeKey="gateways"
-      title={gateway ? `${gateway.gatewayId} Gateway Detail` : "Gateway Detail"}
+      title={gateway ? `${gateway.gatewayId} 상세` : "게이트웨이 상세"}
       subtitle="게이트웨이와 연결된 센서 묶음을 세부 점검합니다."
       state={state}
       toolbar={
         <Link
           href="/gateways"
-          className="rounded-full border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-slate-300 transition hover:border-white/20 hover:bg-white/[0.08] hover:text-white"
+          className="min-h-11 rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 transition hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
         >
           게이트웨이 목록으로
         </Link>
@@ -2958,73 +3247,85 @@ export function GatewayDetailScreen({ gatewayId }: { gatewayId: string }) {
         <div className="space-y-6">
           <div className="grid gap-4 xl:grid-cols-4">
             <MetricCard
-              label="Connected Sensors"
+              label="연결 센서"
               value={formatNumber(gateway.connectedSensors.length)}
               hint={gateway.spaceName}
             />
             <MetricCard
-              label="Linked Bridge"
+              label="연결 브리지"
               value={textOrFallback(gateway.linkedBridge)}
-              hint="Gateway registry mapping"
+              hint="등록된 게이트웨이 연결 경로"
               tone="orange"
             />
             <MetricCard
-              label="Firmware"
+              label="펌웨어"
               value={textOrFallback(gateway.firmwareVersion)}
-              hint="Registered firmware version"
+              hint="등록된 펌웨어 버전"
               tone="emerald"
             />
             <MetricCard
-              label="Gateway Status"
-              value={gateway.status}
-              hint={formatDateTime(gateway.lastHeartbeatAt)}
-              tone={gateway.status === "Online" ? "emerald" : "rose"}
+              label="게이트웨이 상태"
+              value={gatewayDisplayLabel(gateway)}
+              hint={`마지막 통신 ${formatDateTime(gateway.lastHeartbeatAt)}`}
+              tone={
+                gateway.status === "Online"
+                  ? "emerald"
+                  : gateway.status === "Warning"
+                    ? "orange"
+                    : gateway.status === "Offline"
+                      ? "rose"
+                      : undefined
+              }
             />
           </div>
 
           <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
             <Panel>
-              <h2 className="text-lg font-semibold text-white">Assigned Sensors</h2>
-              <div className="mt-5 overflow-x-auto">
+              <h2 className="text-lg font-bold text-slate-900 dark:text-white">연결 센서</h2>
+              {gateway.connectedSensors.length > 0 ? (
+                <div className="mt-5 overflow-x-auto">
                 <table className="min-w-full text-left text-sm">
-                  <thead className="border-b border-white/8 text-[11px] uppercase tracking-[0.2em] text-slate-500">
+                  <thead className="border-b border-slate-200 text-xs font-bold text-slate-500 dark:border-slate-800 dark:text-slate-400">
                     <tr>
-                      <th className="pb-4 pr-4">Sensor ID</th>
-                      <th className="pb-4 pr-4">Type</th>
-                      <th className="pb-4 pr-4">Status</th>
-                      <th className="pb-4 pr-4">Battery</th>
-                      <th className="pb-4 text-right">Details</th>
+                      <th className="pb-4 pr-4">센서 ID</th>
+                      <th className="pb-4 pr-4">유형</th>
+                      <th className="pb-4 pr-4">상태</th>
+                      <th className="pb-4 pr-4">배터리</th>
+                      <th className="pb-4 text-right">상세</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-white/6">
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                     {gateway.connectedSensors.map((sensor) => (
                       <tr key={sensor.sensorId}>
-                        <td className="py-4 pr-4 font-medium text-white">{sensor.sensorId}</td>
-                        <td className="py-4 pr-4 text-slate-300">{sensor.type}</td>
+                        <td className="py-4 pr-4 font-medium text-slate-900 dark:text-white">{sensor.sensorId}</td>
+                        <td className="py-4 pr-4 text-slate-600 dark:text-slate-300">{sensor.type}</td>
                         <td className="py-4 pr-4">
                           <StatusBadge tone={sensor.status === "ACTIVE" ? "success" : "warning"}>
-                            {sensor.status}
+                            {sensorLifecycleLabel(sensor.status)}
                           </StatusBadge>
                         </td>
-                        <td className="py-4 pr-4 text-slate-300">{sensor.batteryLabel}</td>
+                        <td className="py-4 pr-4 text-slate-600 dark:text-slate-300">{sensor.batteryLabel}</td>
                         <td className="py-4 text-right">
                           <Link
                             href={`/sensors/${sensor.sensorId}`}
-                            className="rounded-full border border-cyan-400/25 bg-cyan-400/10 px-3 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-cyan-100"
+                            className="inline-flex min-h-10 items-center rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-blue-700 transition hover:bg-blue-50 dark:border-slate-700 dark:text-blue-300 dark:hover:bg-slate-800"
                           >
-                            View
+                            보기
                           </Link>
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
-              </div>
+                </div>
+              ) : (
+                <p className="mt-5 text-sm text-slate-500 dark:text-slate-400">이 게이트웨이에 연결된 센서가 없습니다.</p>
+              )}
             </Panel>
 
             <div className="space-y-6">
               <Panel>
-                <h2 className="text-lg font-semibold text-white">Connected Sensor Battery</h2>
+                <h2 className="text-lg font-bold text-slate-900 dark:text-white">연결 센서 배터리</h2>
                 {batteryTrend.length > 0 ? (
                   <div className="mt-5">
                     <MiniBars points={batteryTrend} />
@@ -3035,16 +3336,20 @@ export function GatewayDetailScreen({ gatewayId }: { gatewayId: string }) {
               </Panel>
 
               <Panel>
-                <h2 className="text-lg font-semibold text-white">Recent Activity</h2>
-                <div className="mt-4 space-y-3">
-                  {logs.map((log) => (
-                    <div key={log.id} className="rounded-[22px] border border-white/8 bg-white/[0.03] px-4 py-4">
-                      <p className="font-medium text-white">{log.eventType}</p>
-                      <p className="mt-1 text-sm text-slate-300">{log.details}</p>
-                      <p className="mt-2 text-xs text-slate-500">{formatDateTime(log.timestamp)}</p>
-                    </div>
-                  ))}
-                </div>
+                <h2 className="text-lg font-bold text-slate-900 dark:text-white">최근 활동</h2>
+                {logs.length > 0 ? (
+                  <div className="mt-4 space-y-3">
+                    {logs.map((log) => (
+                      <div key={log.id} className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-4 dark:border-slate-800 dark:bg-slate-800/35">
+                        <p className="font-medium text-slate-900 dark:text-white">{log.eventType}</p>
+                        <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">{log.details}</p>
+                        <p className="mt-2 text-xs text-slate-500">{formatDateTime(log.timestamp)}</p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-4 text-sm text-slate-500 dark:text-slate-400">이 게이트웨이의 최근 이벤트가 없습니다.</p>
+                )}
               </Panel>
             </div>
           </div>
@@ -3059,18 +3364,23 @@ export function GatewayDetailScreen({ gatewayId }: { gatewayId: string }) {
   );
 }
 
+/** 현재 workspace와 센서 usage 응답으로 계산 가능한 운영 통계를 표시한다. */
 export function AnalyticsScreen() {
   const state = useWorkspaceLoader();
+  const [focusSpaceId, setFocusSpaceId] = useState<number | null>(null);
   const spaces = state.workspace?.spaces ?? [];
-  const focusSpace = spaces[0] ?? null;
-  const { history, usage } = useSpaceHistoryState(state, focusSpace);
+  const focusSpace = spaces.find((space) => space.spaceId === focusSpaceId) ?? spaces[0] ?? null;
+  const { history, usage, error: historyError } = useSpaceHistoryState(state, focusSpace);
   const rankingSpaces = spaces
     .filter(hasAvailableOccupancy)
     .slice()
     .sort((left, right) => right.occupancyRate - left.occupancyRate)
     .slice(0, 5);
   const alertingSpaces = spaces.filter(
-    (space) => space.occupancyRate >= 90 || space.lowBatteryCount > 0 || space.offlineCount > 0,
+    (space) => space.occupancyRate >= 90
+      || space.lowBatteryCount > 0
+      || space.offlineCount > 0
+      || space.sensors.some((sensor) => sensor.detectionStatus === "Unreliable"),
   );
   const peakHistoryPoint =
     history.reduce<{ label: string; value: number } | null>((current, point) => {
@@ -3082,25 +3392,38 @@ export function AnalyticsScreen() {
   const findings = [
     rankingSpaces[0]
       ? {
-          tone: "critical" as const,
-          title: "Highest Occupancy",
-          message: `${rankingSpaces[0].name} is currently the busiest managed zone at ${Math.round(
+          tone: rankingSpaces[0].occupancyRate >= 90
+            ? "critical" as const
+            : rankingSpaces[0].occupancyRate >= 75
+              ? "warning" as const
+              : "info" as const,
+          title: "가장 혼잡한 공간",
+          message: `${rankingSpaces[0].name}의 신뢰 가능한 최근 점유율이 ${Math.round(
             rankingSpaces[0].occupancyRate,
-          )}%.`,
+          )}%로 가장 높습니다.`,
         }
       : null,
     alertingSpaces.find((space) => space.offlineCount > 0)
       ? {
           tone: "warning" as const,
-          title: "Hardware Attention",
-          message: `${alertingSpaces.find((space) => space.offlineCount > 0)?.name} has offline or maintenance sensors.`,
+          title: "장비 점검 필요",
+          message: `${alertingSpaces.find((space) => space.offlineCount > 0)?.name}에 오프라인 센서가 있습니다.`,
         }
       : null,
     alertingSpaces.find((space) => space.lowBatteryCount > 0)
       ? {
           tone: "info" as const,
-          title: "Battery Watch",
-          message: `${alertingSpaces.find((space) => space.lowBatteryCount > 0)?.name} has low-battery sensors pending replacement.`,
+          title: "배터리 점검",
+          message: `${alertingSpaces.find((space) => space.lowBatteryCount > 0)?.name}에 배터리 교체를 검토할 센서가 있습니다.`,
+        }
+      : null,
+    alertingSpaces.find((space) => space.sensors.some((sensor) => sensor.detectionStatus === "Unreliable"))
+      ? {
+          tone: "warning" as const,
+          title: "측정 신뢰도 점검",
+          message: `${alertingSpaces.find(
+            (space) => space.sensors.some((sensor) => sensor.detectionStatus === "Unreliable"),
+          )?.name}에 최신 측정값의 신뢰도가 낮은 센서가 있습니다.`,
         }
       : null,
   ].filter(Boolean) as Array<{ tone: "critical" | "warning" | "info"; title: string; message: string }>;
@@ -3108,77 +3431,76 @@ export function AnalyticsScreen() {
   return (
     <ShellContent
       activeKey="analytics"
-      title="Data Analytics"
-      subtitle="Spatial utilization trends, comparative rankings, and predictive operational insights."
+      title="사용 분석"
+      subtitle="현재 공간 비교와 선택된 기준 공간의 실제 관측 데이터를 확인합니다."
       state={state}
       toolbar={
-        <div className="flex items-center gap-2 rounded-xl bg-slate-100 p-1 dark:bg-slate-800">
-          <button className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-slate-900 shadow-sm dark:bg-slate-700 dark:text-white">
-            Today
-          </button>
-          <button className="px-4 py-2 text-sm font-medium text-slate-500">Week</button>
-          <button className="px-4 py-2 text-sm font-medium text-slate-500">Month</button>
-          <button className="px-4 py-2 text-sm font-medium text-slate-500">Custom</button>
-        </div>
+        spaces.length > 0 ? (
+          <select
+            aria-label="사용률 분석 기준 공간"
+            value={focusSpace?.spaceId ?? ""}
+            onChange={(event) => setFocusSpaceId(Number(event.target.value))}
+            className="min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+          >
+            {spaces.map((space) => (
+              <option key={space.spaceId} value={space.spaceId}>{space.name}</option>
+            ))}
+          </select>
+        ) : undefined
       }
     >
       {state.workspace ? (
         <div className="space-y-6">
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <MetricCard
-              label="Current Occupancy"
+              label="현재 사용 중"
               value={formatNumber(state.workspace.summary.occupiedNow)}
-              hint={`${formatPercent(state.workspace.summary.occupancyRate)} average live utilization`}
+              hint={`현재 보고 가능한 센서 기준 ${formatPercent(state.workspace.summary.occupancyRate)}`}
             />
             <MetricCard
-              label="24시간 최대 사용률"
+              label="기준 공간 최대 시간"
               value={formatHourLabel(peakHistoryPoint?.label)}
-              hint={peakHistoryPoint ? `${Math.round(peakHistoryPoint.value)}% measured usage` : "No data"}
+              hint={peakHistoryPoint ? `${focusSpace?.name ?? "기준 공간"} · 실측 ${Math.round(peakHistoryPoint.value)}%` : "관측 데이터 없음"}
               tone="orange"
             />
             <MetricCard
-              label="Monitored Zones"
+              label="관리 공간"
               value={formatNumber(spaces.length)}
-              hint="실시간 공간 상태가 수집되는 영역 수"
+              hint="현재 관리자 프로필에 등록된 영역 수"
               tone="rose"
             />
             <MetricCard
-              label="Alerting Spaces"
+              label="점검 필요 공간"
               value={formatNumber(alertingSpaces.length)}
-              hint="Occupancy, battery, or sensor issues detected"
+              hint="혼잡·배터리·센서 상태 기준"
               tone="emerald"
             />
           </div>
 
           <div className="grid gap-6 xl:grid-cols-2">
             <Panel>
-              <div className="flex items-center justify-between">
-                <h2 className="text-lg font-bold text-slate-900 dark:text-white">
-                  시간대별 실측 사용률
-                </h2>
-                <button className="text-sm font-medium text-sky-600 dark:text-sky-300">
-                  Download CSV
-                </button>
+              <div>
+                <h2 className="text-lg font-bold text-slate-900 dark:text-white">시간대별 실측 사용률</h2>
+                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                  {focusSpace ? `${focusSpace.name}을 기준으로 표시합니다.` : "기준으로 삼을 공간이 없습니다."}
+                </p>
               </div>
               <div className="mt-6">
                 <MiniBars points={history} />
               </div>
               <p className="mt-4 text-xs text-slate-500 dark:text-slate-400">
-                관측 커버리지 {usage ? `${usage.coveragePercent.toFixed(1)}%` : "N/A"} · 미수집 구간은
+                관측 커버리지 {usage ? `${usage.coveragePercent.toFixed(1)}%` : "확인 불가"} · 미수집 구간은
                 빈자리로 추정하지 않습니다.
               </p>
+              {historyError ? (
+                <p className="mt-2 text-xs text-rose-600 dark:text-rose-300">{historyError}</p>
+              ) : null}
             </Panel>
 
             <Panel>
-              <div className="flex items-center justify-between">
-                <h2 className="text-lg font-bold text-slate-900 dark:text-white">
-                  Zone Utilization Ranking
-                </h2>
-                <button className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-700 dark:border-slate-800 dark:text-slate-300">
-                  Filter Zones
-                </button>
-              </div>
-              <div className="mt-5 space-y-4">
+              <h2 className="text-lg font-bold text-slate-900 dark:text-white">공간별 사용률 순위</h2>
+              {rankingSpaces.length > 0 ? (
+                <div className="mt-5 space-y-4">
                 {rankingSpaces.map((space) => (
                   <div key={space.spaceId} className="flex items-center gap-4">
                     <div className="flex-1">
@@ -3192,20 +3514,23 @@ export function AnalyticsScreen() {
                       </div>
                       <div className="h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
                         <div
-                          className="h-full rounded-full bg-sky-500"
+                          className="h-full rounded-full bg-blue-500"
                           style={{
-                            width: `${Math.max(space.occupancyRate, 8)}%`,
+                            width: `${Math.min(Math.max(space.occupancyRate, 0), 100)}%`,
                             opacity: 0.35 + Math.min(space.occupancyRate / 100, 0.65),
                           }}
                         />
                       </div>
                     </div>
                     <span className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">
-                      {space.occupancyRate >= 75 ? "UP" : "STEADY"}
+                      {occupancyStateLabel(space)}
                     </span>
                   </div>
                 ))}
-              </div>
+                </div>
+              ) : (
+                <p className="mt-5 text-sm text-slate-500 dark:text-slate-400">비교할 수 있는 신뢰 가능한 점유 데이터가 없습니다.</p>
+              )}
             </Panel>
           </div>
 
@@ -3213,18 +3538,18 @@ export function AnalyticsScreen() {
             <Panel className="lg:col-span-2">
               <div className="flex items-center justify-between">
                 <h2 className="text-lg font-bold text-slate-900 dark:text-white">
-                  Space Snapshot Matrix
+                  공간 상태 비교
                 </h2>
               </div>
               <div className="mt-6 overflow-x-auto">
                 <table className="min-w-full text-left">
                   <thead>
                     <tr className="border-b border-slate-200 text-xs font-bold uppercase tracking-[0.18em] text-slate-500 dark:border-slate-800 dark:text-slate-400">
-                      <th className="pb-3 pr-4">Zone</th>
-                      <th className="pb-3 pr-4">Occupancy</th>
-                      <th className="pb-3 pr-4">Sensors</th>
-                      <th className="pb-3 pr-4">Battery Watch</th>
-                      <th className="pb-3">Status</th>
+                      <th className="pb-3 pr-4">공간</th>
+                      <th className="pb-3 pr-4">점유 현황</th>
+                      <th className="pb-3 pr-4">센서</th>
+                      <th className="pb-3 pr-4">배터리 점검</th>
+                      <th className="pb-3">상태</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -3235,7 +3560,9 @@ export function AnalyticsScreen() {
                           <p className="text-xs text-slate-500 dark:text-slate-400">{textOrFallback(space.addressLabel)}</p>
                         </td>
                         <td className="py-4 pr-4 text-sm text-slate-700 dark:text-slate-300">
-                          {formatNumber(space.occupiedCount)} occupants ({Math.round(space.occupancyRate)}%)
+                          {hasAvailableOccupancy(space)
+                            ? `${formatNumber(space.occupiedCount)}개 사용 중 (${Math.round(space.occupancyRate)}%)`
+                            : "신뢰 가능한 최신값 없음"}
                         </td>
                         <td className="py-4 pr-4 text-sm text-slate-700 dark:text-slate-300">
                           {formatNumber(space.sensors.length)}
@@ -3254,7 +3581,7 @@ export function AnalyticsScreen() {
             </Panel>
 
             <Panel className="flex flex-col">
-              <h2 className="text-lg font-bold text-slate-900 dark:text-white">Operational Findings</h2>
+              <h2 className="text-lg font-bold text-slate-900 dark:text-white">운영 점검 항목</h2>
               <div className="mt-5 space-y-4">
                 {findings.length > 0 ? (
                   findings.map((finding, index) => (
@@ -3266,7 +3593,7 @@ export function AnalyticsScreen() {
                           ? "border-rose-500"
                           : finding.tone === "warning"
                             ? "border-amber-500"
-                            : "border-sky-500",
+                            : "border-blue-500",
                       )}
                     >
                       <p
@@ -3276,7 +3603,7 @@ export function AnalyticsScreen() {
                             ? "text-rose-600 dark:text-rose-300"
                             : finding.tone === "warning"
                               ? "text-amber-600 dark:text-amber-300"
-                              : "text-sky-600 dark:text-sky-300",
+                              : "text-blue-600 dark:text-blue-300",
                         )}
                       >
                         {finding.title}
@@ -3294,9 +3621,9 @@ export function AnalyticsScreen() {
               </div>
               <Link
                 href="/logs"
-                className="mt-auto pt-4 text-sm font-medium text-slate-500 transition hover:text-sky-600 dark:text-slate-400 dark:hover:text-sky-300"
+                className="mt-auto pt-4 text-sm font-medium text-slate-500 transition hover:text-blue-600 dark:text-slate-400 dark:hover:text-blue-300"
               >
-                View All System Logs
+                전체 이벤트 로그 보기
               </Link>
             </Panel>
           </div>
@@ -3311,6 +3638,7 @@ export function AnalyticsScreen() {
   );
 }
 
+/** 관리자 프로필별 임계값·보존 기간·알림 채널 설정을 조회하고 저장한다. */
 export function SettingsScreen() {
   const state = useWorkspaceLoader();
   const { isReady, resolveAuthHeaders, workspace } = state;
@@ -3357,13 +3685,14 @@ export function SettingsScreen() {
       setSettingsLoading(true);
       setError(null);
 
-      const headers = await resolveAuthHeaders();
-      if (!headers || cancelled) {
-        setSettingsLoading(false);
-        return;
-      }
-
       try {
+        const headers = await resolveAuthHeaders();
+        if (cancelled) {
+          return;
+        }
+        if (!headers) {
+          throw new Error("관리자 설정 조회에 필요한 인증 세션이 없습니다.");
+        }
         const nextSettings = await loadAdminConsoleSettings(headers);
         if (cancelled) {
           return;
@@ -3388,7 +3717,20 @@ export function SettingsScreen() {
   }, [applySettings, isReady, resolveAuthHeaders]);
 
   const saveSettings = useCallback(async () => {
-    if (!isReady) {
+    if (!isReady || !settings) {
+      return;
+    }
+
+    const parsedOverCapacity = Number(overCapacity);
+    const parsedWarningBuffer = Number(warningBuffer);
+    if (!Number.isInteger(parsedOverCapacity) || parsedOverCapacity < 1) {
+      setNotice(null);
+      setError("초과 수용 인원 기준은 1 이상의 정수로 입력해 주세요.");
+      return;
+    }
+    if (!Number.isInteger(parsedWarningBuffer) || parsedWarningBuffer < 1 || parsedWarningBuffer > 100) {
+      setNotice(null);
+      setError("사전 경고 비율은 1~100 사이의 정수로 입력해 주세요.");
       return;
     }
 
@@ -3396,16 +3738,15 @@ export function SettingsScreen() {
     setNotice(null);
     setError(null);
 
-    const headers = await resolveAuthHeaders();
-    if (!headers) {
-      setSaving(false);
-      return;
-    }
-
     try {
+      const headers = await resolveAuthHeaders();
+      if (!headers) {
+        setError("인증 세션을 확인할 수 없습니다.");
+        return;
+      }
       const nextSettings = await updateAdminConsoleSettings(headers, {
-        overcapacityLimit: Number.parseInt(overCapacity, 10) || 0,
-        warningBufferPercent: Number.parseInt(warningBuffer, 10) || 0,
+        overcapacityLimit: parsedOverCapacity,
+        warningBufferPercent: parsedWarningBuffer,
         sensorRawDataRetention: sensorRetention,
         systemErrorRetention: errorRetention,
         alertHistoryRetention: alertRetention,
@@ -3440,6 +3781,7 @@ export function SettingsScreen() {
     isReady,
     resolveAuthHeaders,
     warningBuffer,
+    settings,
   ]);
 
   const recentChanges =
@@ -3449,55 +3791,55 @@ export function SettingsScreen() {
     })) ?? [];
   const retentionOptions = [
     {
-      label: "Sensor Raw Data Logs",
+      label: "센서 원시 데이터",
       value: sensorRetention,
       setValue: setSensorRetention,
     },
     {
-      label: "System Error Logs",
+      label: "시스템 오류 로그",
       value: errorRetention,
       setValue: setErrorRetention,
     },
     {
-      label: "Alert History",
+      label: "알림 이력",
       value: alertRetention,
       setValue: setAlertRetention,
     },
   ];
   const notificationOptions = [
     {
-      label: "All Notifications",
-      description: "전체 운영 알림을 기본 활성화합니다.",
+      label: "전체 운영 알림",
+      description: "전체 운영 알림의 저장 선호값입니다.",
       checked: allNotificationsEnabled,
       setChecked: setAllNotificationsEnabled,
     },
     {
-      label: "Occupancy Alerts",
-      description: "과밀도와 임계치 도달 알림을 전송합니다.",
+      label: "혼잡 알림",
+      description: "향후 과밀 알림에 사용할 저장 선호값입니다.",
       checked: occupancyNotificationsEnabled,
       setChecked: setOccupancyNotificationsEnabled,
     },
     {
-      label: "Battery Alerts",
-      description: "배터리 임계치 미만 센서를 감시합니다.",
+      label: "배터리 알림",
+      description: "향후 배터리 알림에 사용할 저장 선호값입니다.",
       checked: batteryNotificationsEnabled,
       setChecked: setBatteryNotificationsEnabled,
     },
     {
-      label: "Email Notifications",
-      description: "관리자 이메일 채널을 사용합니다.",
+      label: "이메일 알림",
+      description: "향후 이메일 채널에 사용할 저장 선호값입니다.",
       checked: emailNotificationsEnabled,
       setChecked: setEmailNotificationsEnabled,
     },
     {
-      label: "Push Notifications",
-      description: "웹 푸시 알림을 사용합니다.",
+      label: "웹 푸시 알림",
+      description: "향후 웹 푸시 채널에 사용할 저장 선호값입니다.",
       checked: pushNotificationsEnabled,
       setChecked: setPushNotificationsEnabled,
     },
     {
-      label: "SMS Notifications",
-      description: "긴급 SMS 채널을 사용합니다.",
+      label: "문자 알림",
+      description: "향후 SMS 채널에 사용할 저장 선호값입니다.",
       checked: smsNotificationsEnabled,
       setChecked: setSmsNotificationsEnabled,
     },
@@ -3513,14 +3855,14 @@ export function SettingsScreen() {
   return (
     <ShellContent
       activeKey="settings"
-      title="System Settings"
-      subtitle="Configure thresholds, retention, notification channels, and template policies."
+      title="운영 설정"
+      subtitle="관리자 프로필의 임계값과 보관·알림 선호값을 조회하고 저장합니다."
       state={state}
       toolbar={toolButton(
-        settingsLoading || saving ? "Saving..." : "Save Settings",
+        settingsLoading ? "불러오는 중..." : saving ? "저장 중..." : "설정 저장",
         () => void saveSettings(),
         "primary",
-        settingsLoading || saving,
+        settingsLoading || saving || !settings,
       )}
     >
       {workspace ? (
@@ -3529,72 +3871,73 @@ export function SettingsScreen() {
           {settingsLoading ? (
             <Panel>
               <div className="flex items-center justify-between">
-                <h2 className="text-lg font-bold text-slate-900 dark:text-white">Settings Snapshot</h2>
-                <StatusBadge tone="info">Loading</StatusBadge>
+                <h2 className="text-lg font-bold text-slate-900 dark:text-white">설정 불러오기</h2>
+                <StatusBadge tone="info">진행 중</StatusBadge>
               </div>
               <p className="mt-4 text-sm text-slate-500 dark:text-slate-400">관리자 설정을 불러오는 중입니다.</p>
             </Panel>
           ) : null}
           <Panel>
-            <h2 className="text-xl font-bold text-slate-900 dark:text-white">Alert Thresholds</h2>
+            <h2 className="text-xl font-bold text-slate-900 dark:text-white">저장된 혼잡 기준</h2>
+            <p className="mt-2 text-sm text-amber-700 dark:text-amber-300">
+              이 값은 관리자 선호값으로만 저장됩니다. 현재 경보 생성 로직에는 아직 적용되지 않습니다.
+            </p>
             <div className="mt-6 grid gap-8 md:grid-cols-2">
               <div className="space-y-6">
                 <div>
                   <label className="mb-2 block text-sm font-bold text-slate-900 dark:text-slate-100">
-                    Occupancy Notification
+                    혼잡 경보 기준
                   </label>
                   <p className="mb-4 text-sm text-slate-500 dark:text-slate-400">
-                    Set the global occupancy level that triggers a system-wide alert.
+                    초과 수용 인원과 사전 경고 비율을 정수로 입력해 주세요.
                   </p>
                   <div className="flex items-center gap-4">
                     <div className="relative h-2 flex-1 rounded-full bg-slate-200 dark:bg-slate-700">
-                      <div className="absolute left-0 top-0 h-full rounded-full bg-sky-500" style={{ width: `${Math.min(Math.max(Number(warningBuffer) || 0, 0), 100)}%` }} />
+                      <div className="absolute left-0 top-0 h-full rounded-full bg-blue-500" style={{ width: `${Math.min(Math.max(Number(warningBuffer) || 0, 0), 100)}%` }} />
                     </div>
-                    <span className="min-w-12 text-right text-lg font-black text-sky-600 dark:text-sky-300">
+                    <span className="min-w-12 text-right text-lg font-black text-blue-600 dark:text-blue-300">
                       {warningBuffer}%
                     </span>
                   </div>
                 </div>
                 <div className="grid gap-4 md:grid-cols-2">
                   <label className="space-y-2 text-sm text-slate-600 dark:text-slate-300">
-                    <span className="font-semibold">Occupancy Alert Limit</span>
-                    <input value={overCapacity} onChange={(event) => setOverCapacity(event.target.value)} className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 outline-none dark:border-slate-800 dark:bg-slate-900" />
+                    <span className="font-semibold">초과 수용 인원</span>
+                    <input type="number" min={1} step={1} disabled={!settings || settingsLoading} value={overCapacity} onChange={(event) => setOverCapacity(event.target.value)} className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 outline-none disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-800 dark:bg-slate-900" />
                   </label>
                   <label className="space-y-2 text-sm text-slate-600 dark:text-slate-300">
-                    <span className="font-semibold">Warning Buffer (%)</span>
-                    <input value={warningBuffer} onChange={(event) => setWarningBuffer(event.target.value)} className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 outline-none dark:border-slate-800 dark:bg-slate-900" />
+                    <span className="font-semibold">사전 경고 비율 (%)</span>
+                    <input type="number" min={1} max={100} step={1} disabled={!settings || settingsLoading} value={warningBuffer} onChange={(event) => setWarningBuffer(event.target.value)} className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 outline-none disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-800 dark:bg-slate-900" />
                   </label>
                 </div>
                 <div className="flex gap-3">
-                  {toolButton("Save Thresholds", () => void saveSettings(), "primary", saving)}
-                  {toolButton("Revert Changes", () => restoreLoadedSettings(), "default", !settings)}
+                  {toolButton("저장값으로 되돌리기", () => restoreLoadedSettings(), "default", !settings || saving)}
                 </div>
               </div>
-              <div className="relative aspect-video overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 dark:border-slate-800 dark:bg-slate-900">
-                <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(43,140,238,0.16),transparent_40%)]" />
-                <div className="relative flex h-full flex-col items-center justify-center text-center">
-                  <p className="text-xs font-bold uppercase tracking-[0.24em] text-slate-400">Live Preview</p>
-                  <p className="mt-3 max-w-xs text-sm text-slate-600 dark:text-slate-300">
-                    Visualization of alert intensity based on the current {warningBuffer}% threshold.
-                  </p>
-                </div>
+              <div className="rounded-xl border border-blue-200 bg-blue-50 p-5 dark:border-blue-500/20 dark:bg-blue-500/10">
+                <p className="text-sm font-bold text-blue-900 dark:text-blue-200">현재 적용 범위</p>
+                <p className="mt-2 text-sm leading-6 text-blue-800 dark:text-blue-300">
+                  서버는 초과 수용 인원 {overCapacity || "-"}명, 사전 경고 {warningBuffer || "-"}%를 저장합니다.
+                  실제 센서 판정이나 알림 발송에 적용하려면 별도의 서버 연동이 필요합니다.
+                </p>
               </div>
             </div>
           </Panel>
 
           <div className="grid gap-6 md:grid-cols-2">
             <Panel>
-              <h2 className="text-xl font-bold text-slate-900 dark:text-white">Data Retention</h2>
+              <h2 className="text-xl font-bold text-slate-900 dark:text-white">데이터 보관 기간</h2>
+              <p className="mt-2 text-sm text-amber-700 dark:text-amber-300">저장 선호값이며, 이 값을 사용하는 자동 삭제 작업은 아직 연결되지 않았습니다.</p>
               <div className="mt-5 space-y-4">
                 {retentionOptions.map((item) => (
                   <div key={item.label} className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-900/35">
                     <div>
                       <p className="text-sm font-bold text-slate-900 dark:text-white">{item.label}</p>
-                      <p className="text-xs text-slate-500 dark:text-slate-400">Policy configuration</p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">관리자 프로필 저장값</p>
                     </div>
-                    <select value={item.value} onChange={(event) => item.setValue(event.target.value)} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-sky-600 outline-none dark:border-slate-800 dark:bg-slate-900 dark:text-sky-300">
-                      {["30 Days", "60 Days", "90 Days", "1 Year", "2 Years"].map((option) => (
-                        <option key={option} value={option}>{option}</option>
+                    <select disabled={!settings || settingsLoading} value={item.value} onChange={(event) => item.setValue(event.target.value)} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-blue-600 outline-none disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-800 dark:bg-slate-900 dark:text-blue-300">
+                      {[["30 Days", "30일"], ["60 Days", "60일"], ["90 Days", "90일"], ["1 Year", "1년"], ["2 Years", "2년"]].map(([value, label]) => (
+                        <option key={value} value={value}>{label}</option>
                       ))}
                     </select>
                   </div>
@@ -3603,7 +3946,8 @@ export function SettingsScreen() {
             </Panel>
 
             <Panel>
-              <h2 className="text-xl font-bold text-slate-900 dark:text-white">Notification Channels</h2>
+              <h2 className="text-xl font-bold text-slate-900 dark:text-white">알림 채널</h2>
+              <p className="mt-2 text-sm text-amber-700 dark:text-amber-300">채널 선호값만 저장되며 이메일·웹 푸시·문자 발송은 아직 연결되지 않았습니다.</p>
               <div className="mt-5 space-y-4">
                 <div className="space-y-3">
                   {notificationOptions.map((item) => (
@@ -3612,7 +3956,7 @@ export function SettingsScreen() {
                         <p className="text-sm font-bold text-slate-900 dark:text-white">{item.label}</p>
                         <p className="text-xs text-slate-500 dark:text-slate-400">{item.description}</p>
                       </div>
-                      <input type="checkbox" checked={item.checked} onChange={(event) => item.setChecked(event.target.checked)} className="size-5 rounded border-slate-300 text-sky-500 focus:ring-sky-500" />
+                      <input disabled={!settings || settingsLoading} type="checkbox" checked={item.checked} onChange={(event) => item.setChecked(event.target.checked)} className="size-5 rounded border-slate-300 text-blue-500 focus:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-60" />
                     </label>
                   ))}
                 </div>
@@ -3620,43 +3964,43 @@ export function SettingsScreen() {
             </Panel>
           </div>
 
-          <Panel className="flex flex-col gap-6 bg-sky-500/10 dark:bg-sky-500/10 md:flex-row md:items-center md:justify-between">
+          <Panel className="flex flex-col gap-6 bg-blue-500/10 dark:bg-blue-500/10 md:flex-row md:items-center md:justify-between">
             <div>
-              <p className="text-lg font-bold text-sky-700 dark:text-sky-300">Managed Infrastructure</p>
+              <p className="text-lg font-bold text-blue-700 dark:text-blue-300">현재 관리 범위</p>
               <p className="text-sm text-slate-600 dark:text-slate-400">
-                {workspace.gateways.length} gateways, {workspace.sensors.length} sensors, {workspace.alerts.length} open alerts are currently under this profile.
+                이 프로필에서 게이트웨이 {workspace.gateways.length}개, 센서 {workspace.sensors.length}개, 알림 {workspace.alerts.length}개를 조회하고 있습니다.
               </p>
             </div>
-            <div className="grid grid-cols-3 gap-3 text-center text-sm font-semibold text-sky-800 dark:text-sky-200">
+            <div className="grid grid-cols-3 gap-3 text-center text-sm font-semibold text-blue-800 dark:text-blue-200">
               <div>
                 <p className="text-xl font-black">{workspace.spaces.length}</p>
-                <p className="text-xs uppercase tracking-[0.18em]">Spaces</p>
+                <p className="text-xs">공간</p>
               </div>
               <div>
                 <p className="text-xl font-black">{workspace.gateways.filter((gateway) => gateway.status === "Online").length}</p>
-                <p className="text-xs uppercase tracking-[0.18em]">Online</p>
+                <p className="text-xs">온라인</p>
               </div>
               <div>
                 <p className="text-xl font-black">{workspace.sensors.filter((sensor) => sensor.status === "ACTIVE").length}</p>
-                <p className="text-xs uppercase tracking-[0.18em]">Active Sensors</p>
+                <p className="text-xs">활성 센서</p>
               </div>
             </div>
           </Panel>
 
           <div className="grid gap-6 lg:grid-cols-2">
             <Panel>
-              <h2 className="text-lg font-bold text-slate-900 dark:text-white">Configuration Summary</h2>
+              <h2 className="text-lg font-bold text-slate-900 dark:text-white">설정 대상 요약</h2>
               <div className="mt-4 space-y-2 text-sm text-slate-600 dark:text-slate-300">
-                <p>Tracked spaces: {workspace.spaces.length}</p>
-                <p>Managed sensors: {workspace.sensors.length}</p>
-                <p>Current alerts: {workspace.alerts.length}</p>
-                <p>Admin profile: {settings?.managedByProfileId ?? "unknown"}</p>
-                <p>Role: {settings?.role ?? "MANAGER"}</p>
+                <p>관리 공간: {workspace.spaces.length}개</p>
+                <p>관리 센서: {workspace.sensors.length}개</p>
+                <p>현재 알림: {workspace.alerts.length}개</p>
+                <p>관리 프로필: {settings?.managedByProfileId ?? "확인 불가"}</p>
+                <p>권한: {settings?.role ?? "MANAGER"}</p>
               </div>
             </Panel>
 
             <Panel>
-              <h2 className="text-lg font-bold text-slate-900 dark:text-white">Recent Changes</h2>
+              <h2 className="text-lg font-bold text-slate-900 dark:text-white">최근 운영 이벤트</h2>
               <div className="mt-4 space-y-4">
                 {recentChanges.map((item, index) => (
                   <div key={`${item.label}-${index}`} className="border-l border-slate-200 pl-4 dark:border-slate-700">
@@ -3674,10 +4018,10 @@ export function SettingsScreen() {
           <Panel className="border-slate-200 bg-slate-50/70 dark:border-slate-800 dark:bg-slate-900/35">
             <div className="flex flex-col gap-4">
               <div>
-                <p className="text-sm font-bold uppercase tracking-[0.18em] text-slate-600 dark:text-slate-300">Operations Note</p>
-                <p className="mt-2 font-bold text-slate-900 dark:text-white">Destructive admin actions are not exposed here.</p>
+                <p className="text-sm font-bold text-slate-600 dark:text-slate-300">운영 안내</p>
+                <p className="mt-2 font-bold text-slate-900 dark:text-white">이 화면에는 데이터 삭제 기능이 없습니다.</p>
                 <p className="text-sm text-slate-500 dark:text-slate-400">
-                  현재 화면에서는 실제로 저장 가능한 임계치, 보관 정책, 알림 채널만 관리합니다.
+                  현재 화면은 선호값만 저장합니다. 실제 알림 발송, 보관 데이터 삭제, 임계치 기반 처리에는 아직 연결되지 않았습니다.
                 </p>
               </div>
             </div>
@@ -3693,6 +4037,7 @@ export function SettingsScreen() {
   );
 }
 
+/** backend workspace가 구성한 운영 로그를 심각도·검색 조건으로 탐색한다. */
 export function LogsScreen() {
   const state = useWorkspaceLoader();
   const [query, setQuery] = useState("");
@@ -3716,31 +4061,32 @@ export function LogsScreen() {
   return (
     <ShellContent
       activeKey="logs"
-      title="Logs"
-      subtitle="Review grouped event streams, severity mix, and recent device health signals."
+      title="이벤트 로그"
+      subtitle="현재 불러온 공간·센서·게이트웨이 이벤트를 심각도와 검색어로 확인합니다."
       state={state}
       toolbar={
         <>
-          {searchField(query, setQuery, "Filter by device ID, event, or details...")}
+          {searchField(query, setQuery, "장비 ID, 이벤트 또는 상세 내용 검색")}
           <select
+            aria-label="심각도 필터"
             value={severity}
             onChange={(event) => setSeverity(event.target.value as Severity | "all")}
             className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200"
           >
             <option value="all">
-              Severity: All
+              전체 심각도
             </option>
             <option value="critical">
-              Critical
+              긴급
             </option>
             <option value="warning">
-              Warning
+              주의
             </option>
             <option value="info">
-              Info
+              정보
             </option>
             <option value="success">
-              Success
+              정상
             </option>
           </select>
         </>
@@ -3749,7 +4095,7 @@ export function LogsScreen() {
       {state.workspace ? (
         <div className="grid gap-6 xl:grid-cols-[1fr_320px]">
           <div className="space-y-4">
-            {logs.slice(0, 12).map((log) => (
+            {logs.map((log) => (
               <Panel key={log.id} className={cn("overflow-hidden", severityCardStyle(log.severity))}>
                 <div className="flex items-start gap-4">
                   <div
@@ -3761,7 +4107,7 @@ export function LogsScreen() {
                           ? "bg-amber-500"
                           : log.severity === "success"
                             ? "bg-emerald-500"
-                            : "bg-sky-500",
+                            : "bg-blue-500",
                     )}
                   >
                     <Icon name="alert" className="size-4" />
@@ -3770,7 +4116,7 @@ export function LogsScreen() {
                     <div className="flex items-center justify-between gap-3">
                       <div className="flex items-center gap-2">
                         <span className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
-                          {log.severity}
+                          {severityLabel(log.severity)}
                         </span>
                         <span className="rounded-full bg-white/70 px-2 py-0.5 text-[10px] font-semibold text-slate-600 dark:bg-slate-900/50 dark:text-slate-300">
                           {log.targetLabel}
@@ -3786,25 +4132,37 @@ export function LogsScreen() {
                 </div>
               </Panel>
             ))}
+            {logs.length === 0 ? (
+              <EmptyPanel
+                title="조건에 맞는 이벤트가 없습니다."
+                description="검색어 또는 심각도 필터를 변경해 주세요."
+              />
+            ) : null}
           </div>
 
           <div className="space-y-6">
             <Panel>
-              <h2 className="font-bold text-slate-900 dark:text-white">Log Statistics</h2>
-              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Last 24 hours activity</p>
+              <h2 className="font-bold text-slate-900 dark:text-white">로그 통계</h2>
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">현재 필터 결과 {logs.length}건 기준</p>
               <div className="mt-6 space-y-4">
-                {(["critical", "warning", "info"] as const).map((level) => {
+                {(["critical", "warning", "info", "success"] as const).map((level) => {
                   const count = logs.filter((log) => log.severity === level).length;
                   const color =
-                    level === "critical" ? "bg-rose-500" : level === "warning" ? "bg-amber-500" : "bg-sky-500";
+                    level === "critical"
+                      ? "bg-rose-500"
+                      : level === "warning"
+                        ? "bg-amber-500"
+                        : level === "success"
+                          ? "bg-emerald-500"
+                          : "bg-blue-500";
                   return (
                     <div key={level} className="space-y-2">
                       <div className="flex justify-between text-xs">
-                        <span className="capitalize text-slate-500">{level}</span>
-                        <span className={cn("font-bold", level === "critical" ? "text-rose-500" : level === "warning" ? "text-amber-500" : "text-sky-500")}>{count}</span>
+                        <span className="text-slate-500">{severityLabel(level)}</span>
+                        <span className={cn("font-bold", level === "critical" ? "text-rose-500" : level === "warning" ? "text-amber-500" : level === "success" ? "text-emerald-500" : "text-blue-500")}>{count}</span>
                       </div>
                       <div className="h-1.5 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800">
-                        <div className={color} style={{ width: `${Math.max((count / Math.max(logs.length, 1)) * 100, 6)}%`, height: "100%" }} />
+                        <div className={color} style={{ width: `${(count / Math.max(logs.length, 1)) * 100}%`, height: "100%" }} />
                       </div>
                     </div>
                   );
@@ -3813,29 +4171,51 @@ export function LogsScreen() {
             </Panel>
 
             <Panel>
-              <h2 className="font-bold text-slate-900 dark:text-white">Device Health</h2>
+              <h2 className="font-bold text-slate-900 dark:text-white">장비 보고 상태</h2>
               <div className="mt-4 space-y-3 text-sm">
                 <div className="flex items-center gap-3">
-                  <div className="size-2 rounded-full bg-emerald-500" />
+                  <div
+                    className={cn(
+                      "size-2 rounded-full",
+                      state.workspace.sensors.length === 0
+                        ? "bg-slate-400"
+                        : state.workspace.sensors.every(
+                            (sensor) => sensor.detectionStatus === "Occupied" || sensor.detectionStatus === "Vacant",
+                          )
+                          ? "bg-emerald-500"
+                          : "bg-amber-500",
+                    )}
+                  />
                   <span className="text-slate-700 dark:text-slate-200">
-                    {state.workspace.sensors.filter((sensor) => sensor.status === "ACTIVE").length}/{state.workspace.sensors.length} Sensors Online
+                    {state.workspace.sensors.filter(
+                      (sensor) => sensor.detectionStatus === "Occupied" || sensor.detectionStatus === "Vacant",
+                    ).length}/{state.workspace.sensors.length} 센서가 점유 상태 보고 중
                   </span>
                 </div>
                 <div className="flex items-center gap-3">
-                  <div className="size-2 rounded-full bg-emerald-500" />
+                  <div
+                    className={cn(
+                      "size-2 rounded-full",
+                      state.workspace.gateways.length === 0
+                        ? "bg-slate-400"
+                        : state.workspace.gateways.every((gateway) => gateway.status === "Online")
+                          ? "bg-emerald-500"
+                          : "bg-amber-500",
+                    )}
+                  />
                   <span className="text-slate-700 dark:text-slate-200">
-                    {state.workspace.gateways.filter((gateway) => gateway.status === "Online").length}/{state.workspace.gateways.length} Gateways Online
+                    {state.workspace.gateways.filter((gateway) => gateway.status === "Online").length}/{state.workspace.gateways.length} 게이트웨이 온라인
                   </span>
                 </div>
               </div>
             </Panel>
 
-            <Panel className="bg-sky-500/10 dark:bg-sky-500/10">
-              <p className="text-xs font-bold uppercase tracking-[0.18em] text-sky-600 dark:text-sky-300">
-                Smart Insight
+            <Panel className="bg-blue-500/10 dark:bg-blue-500/10">
+              <p className="text-xs font-bold uppercase tracking-[0.18em] text-blue-600 dark:text-blue-300">
+                분석 범위
               </p>
               <p className="mt-2 text-sm text-slate-700 dark:text-slate-300">
-                Anomalous repetition was detected in the most recent critical stream. Inspect the affected gateway uplink before packet loss cascades.
+                이 화면은 서버에서 불러온 이벤트와 장비 상태만 요약합니다. 자동 이상 탐지나 고장 예측 기능은 구현되어 있지 않습니다.
               </p>
             </Panel>
           </div>

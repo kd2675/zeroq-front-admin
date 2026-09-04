@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ReactNode, useEffect } from "react";
+import { ReactNode, useEffect, useId, useRef } from "react";
 import type { AuthUser } from "@/app/types/auth";
 
 type IconName =
@@ -30,13 +30,13 @@ type NavItem = {
 };
 
 const NAV_ITEMS: NavItem[] = [
-  { key: "dashboard", label: "Dashboard", href: "/", icon: "dashboard", group: "management" },
-  { key: "areas", label: "Area Management", href: "/areas", icon: "areas", group: "management" },
-  { key: "sensors", label: "Sensor List", href: "/sensors", icon: "sensors", group: "management" },
-  { key: "gateways", label: "Gateway List", href: "/gateways", icon: "gateways", group: "management" },
-  { key: "analytics", label: "Data Analytics", href: "/analytics", icon: "analytics", group: "management" },
-  { key: "settings", label: "Settings", href: "/settings", icon: "settings", group: "system" },
-  { key: "logs", label: "Logs", href: "/logs", icon: "logs", group: "system" },
+  { key: "dashboard", label: "운영 현황", href: "/", icon: "dashboard", group: "management" },
+  { key: "areas", label: "공간 관리", href: "/areas", icon: "areas", group: "management" },
+  { key: "sensors", label: "센서", href: "/sensors", icon: "sensors", group: "management" },
+  { key: "gateways", label: "게이트웨이", href: "/gateways", icon: "gateways", group: "management" },
+  { key: "analytics", label: "사용 분석", href: "/analytics", icon: "analytics", group: "management" },
+  { key: "settings", label: "운영 설정", href: "/settings", icon: "settings", group: "system" },
+  { key: "logs", label: "이벤트 로그", href: "/logs", icon: "logs", group: "system" },
 ];
 
 export function cn(...values: Array<string | false | null | undefined>) {
@@ -192,10 +192,11 @@ function SidebarNav({
             <Link
               key={item.key}
               href={item.href}
+              aria-current={active ? "page" : undefined}
               className={cn(
-                "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors",
+                "flex min-h-10 items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors duration-150",
                 active
-                  ? "bg-sky-500/12 text-sky-600 shadow-[inset_4px_0_0_0_#2b8cee] dark:bg-sky-400/12 dark:text-sky-200"
+                  ? "bg-blue-50 font-bold text-blue-700 dark:bg-blue-400/10 dark:text-blue-200"
                   : "text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800/70 dark:hover:text-white",
               )}
             >
@@ -211,9 +212,10 @@ function SidebarNav({
 
 export function LoadingScreen() {
   return (
-    <div className="min-h-screen bg-[linear-gradient(180deg,#eef4fb_0%,#f6f7f8_55%,#e8eef5_100%)] px-6 py-10 dark:bg-[linear-gradient(180deg,#101922_0%,#0f1721_55%,#0b1118_100%)]">
-      <div className="mx-auto flex max-w-5xl items-center justify-center rounded-[28px] border border-slate-200/80 bg-white/90 px-8 py-24 text-sm text-slate-500 shadow-[0_28px_80px_rgba(15,23,42,0.08)] backdrop-blur dark:border-slate-800 dark:bg-slate-900/80 dark:text-slate-300">
-        관리자 세션과 공간 데이터를 확인하는 중입니다.
+    <div className="grid min-h-dvh place-items-center bg-[var(--background)] px-6" aria-live="polite">
+      <div className="text-center text-sm font-medium text-slate-600 dark:text-slate-300">
+        <span className="mx-auto mb-4 block size-8 animate-spin rounded-full border-2 border-slate-300 border-t-blue-600 dark:border-slate-700 dark:border-t-blue-400" aria-hidden="true" />
+        관리자 세션과 운영 데이터를 확인하고 있습니다.
       </div>
     </div>
   );
@@ -246,7 +248,7 @@ export function Panel({
   return (
     <section
       className={cn(
-        "rounded-[24px] border border-slate-200 bg-white p-5 shadow-[0_18px_48px_rgba(15,23,42,0.06)] dark:border-slate-800 dark:bg-slate-900/70 dark:shadow-[0_18px_52px_rgba(2,8,23,0.34)]",
+        "rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900/70",
         className,
       )}
     >
@@ -268,28 +270,20 @@ export function MetricCard({
 }) {
   const toneClass =
     tone === "orange"
-      ? "bg-orange-500/10 text-orange-500 dark:bg-orange-500/12 dark:text-orange-300"
+      ? "border-l-amber-500"
       : tone === "emerald"
-        ? "bg-emerald-500/10 text-emerald-500 dark:bg-emerald-500/12 dark:text-emerald-300"
+        ? "border-l-emerald-500"
         : tone === "rose"
-          ? "bg-rose-500/10 text-rose-500 dark:bg-rose-500/12 dark:text-rose-300"
-          : "bg-sky-500/10 text-sky-600 dark:bg-sky-500/12 dark:text-sky-300";
+          ? "border-l-rose-500"
+          : "border-l-blue-500";
 
   return (
-    <div className="rounded-[20px] border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900/65">
-      <div className="mb-4 flex items-start justify-between gap-3">
-        <div className={cn("rounded-2xl p-2.5", toneClass)}>
-          <div className="size-5 rounded-md bg-current/15" />
-        </div>
-        <div className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-          Live
-        </div>
-      </div>
-      <p className="text-sm font-medium text-slate-500 dark:text-slate-400">{label}</p>
-      <p className="mt-2 text-3xl font-black tracking-tight text-slate-900 dark:text-white">
+    <div className={cn("rounded-xl border border-l-4 border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900/65", toneClass)}>
+      <p className="text-sm font-semibold text-slate-600 dark:text-slate-300">{label}</p>
+      <p className="mt-3 text-3xl font-black tabular-nums tracking-tight text-slate-950 dark:text-white">
         {value}
       </p>
-      <p className="mt-2 text-xs text-slate-400 dark:text-slate-500">{hint}</p>
+      <p className="mt-2 text-xs leading-5 text-slate-500 dark:text-slate-400">{hint}</p>
     </div>
   );
 }
@@ -303,43 +297,75 @@ export function StatusBadge({
 }) {
   const toneClass =
     tone === "critical"
-      ? "bg-rose-100 text-rose-700 dark:bg-rose-500/12 dark:text-rose-300"
+      ? "bg-rose-50 text-rose-700 dark:bg-rose-500/12 dark:text-rose-300"
       : tone === "warning"
-        ? "bg-amber-100 text-amber-700 dark:bg-amber-500/12 dark:text-amber-300"
+        ? "bg-amber-50 text-amber-700 dark:bg-amber-500/12 dark:text-amber-300"
         : tone === "success"
-          ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/12 dark:text-emerald-300"
+          ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/12 dark:text-emerald-300"
           : tone === "info"
-            ? "bg-sky-100 text-sky-700 dark:bg-sky-500/12 dark:text-sky-300"
+            ? "bg-blue-50 text-blue-700 dark:bg-blue-500/12 dark:text-blue-300"
             : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300";
+  const dotClass =
+    tone === "critical"
+      ? "bg-rose-500"
+      : tone === "warning"
+        ? "bg-amber-500"
+        : tone === "success"
+          ? "bg-emerald-500"
+          : tone === "info"
+            ? "bg-blue-500"
+            : "bg-slate-400";
 
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.18em]",
+        "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-bold",
         toneClass,
       )}
     >
+      <span className={cn("size-1.5 rounded-full", dotClass)} aria-hidden="true" />
       {children}
     </span>
   );
 }
 
 export function MiniBars({ points }: { points: Array<{ label: string; value: number }> }) {
-  return (
-    <div>
-      <div className="flex h-44 items-end gap-2">
-        {points.map((point, index) => (
-          <div key={`bar-${point.label}-${index}`} className="flex flex-1 flex-col justify-end">
-            <div
-              className="rounded-t-lg bg-gradient-to-t from-sky-500 via-sky-400 to-sky-300 shadow-[0_10px_30px_rgba(43,140,238,0.28)]"
-              style={{ height: `${Math.max(point.value, 8)}%` }}
-            />
-          </div>
-        ))}
+  if (points.length === 0) {
+    return (
+      <div className="grid h-44 place-items-center border-y border-dashed border-slate-200 text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">
+        이 기간에 표시할 관측 데이터가 없습니다.
       </div>
-      <div className="mt-3 flex justify-between text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
+    );
+  }
+
+  const labelInterval = Math.max(1, Math.ceil(points.length / 6));
+  const accessibleSummary = points
+    .map((point) => `${point.label} ${Math.min(Math.max(point.value, 0), 100).toFixed(1)}%`)
+    .join(", ");
+
+  return (
+    <div role="img" aria-label={`시간대별 사용률 막대그래프: ${accessibleSummary}`}>
+      <div className="flex h-44 items-end gap-2">
+        {points.map((point, index) => {
+          const value = Math.min(Math.max(point.value, 0), 100);
+          return (
+            <div key={`bar-${point.label}-${index}`} className="flex h-full flex-1 flex-col justify-end" title={`${point.label} ${value.toFixed(1)}%`}>
+              <div
+                className="rounded-t bg-blue-500 transition-[height] duration-200 dark:bg-blue-400"
+                style={{ height: `${value}%`, minHeight: value > 0 ? "2px" : 0 }}
+              />
+            </div>
+          );
+        })}
+      </div>
+      <div
+        className="mt-3 grid text-[10px] font-semibold text-slate-500 dark:text-slate-400"
+        style={{ gridTemplateColumns: `repeat(${points.length}, minmax(0, 1fr))` }}
+      >
         {points.map((point, index) => (
-          <span key={`label-${point.label}-${index}`}>{point.label}</span>
+          <span key={`label-${point.label}-${index}`} className="text-center">
+            {index % labelInterval === 0 || index === points.length - 1 ? point.label : ""}
+          </span>
         ))}
       </div>
     </div>
@@ -361,19 +387,59 @@ export function ModalFrame({
   footer?: ReactNode;
   children: ReactNode;
 }) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
+  const descriptionId = useId();
+
   useEffect(() => {
     if (!open) {
       return;
     }
 
+    const previouslyFocused = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    const dialog = dialogRef.current;
+    const focusableSelector = "button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href]";
+    const initialControl = dialog?.querySelector<HTMLElement>("input:not(:disabled), select:not(:disabled), textarea:not(:disabled)")
+      ?? dialog?.querySelector<HTMLElement>(focusableSelector);
+    initialControl?.focus();
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         onClose();
+        return;
+      }
+      if (event.key !== "Tab" || !dialog) {
+        return;
+      }
+
+      const focusable = Array.from(dialog.querySelectorAll<HTMLElement>(focusableSelector));
+      if (focusable.length === 0) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = previousOverflow;
+      previouslyFocused?.focus();
+    };
   }, [onClose, open]);
 
   if (!open) {
@@ -381,24 +447,32 @@ export function ModalFrame({
   }
 
   return (
-    <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/45 p-4 backdrop-blur-sm">
+    <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/50 p-4">
       <div
         className="absolute inset-0"
         aria-hidden="true"
         onClick={onClose}
       />
-      <div className="relative z-10 w-full max-w-3xl overflow-hidden rounded-[28px] border border-slate-200 bg-[linear-gradient(180deg,#fdfefe_0%,#f4f8fc_100%)] shadow-[0_28px_90px_rgba(15,23,42,0.28)] dark:border-slate-800 dark:bg-[linear-gradient(180deg,#111926_0%,#0b1320_100%)] dark:shadow-[0_28px_90px_rgba(2,8,23,0.62)]">
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        aria-describedby={description ? descriptionId : undefined}
+        tabIndex={-1}
+        className="relative z-10 max-h-[calc(100dvh-2rem)] w-full max-w-3xl overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-[var(--shadow-md)] dark:border-slate-800 dark:bg-slate-900"
+      >
         <div className="border-b border-slate-200/80 px-6 py-5 dark:border-slate-800">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <p className="text-[11px] font-bold uppercase tracking-[0.24em] text-sky-500 dark:text-sky-300">
-                Zone Provisioning
+              <p className="text-xs font-bold text-blue-600 dark:text-blue-300">
+                운영 설정
               </p>
-              <h2 className="mt-2 text-2xl font-black tracking-tight text-slate-900 dark:text-white">
+              <h2 id={titleId} className="mt-1 text-xl font-black tracking-tight text-slate-900 dark:text-white">
                 {title}
               </h2>
               {description ? (
-                <p className="mt-2 max-w-2xl text-sm text-slate-500 dark:text-slate-400">
+                <p id={descriptionId} className="mt-2 max-w-2xl text-sm leading-6 text-slate-500 dark:text-slate-400">
                   {description}
                 </p>
               ) : null}
@@ -407,6 +481,7 @@ export function ModalFrame({
               type="button"
               onClick={onClose}
               className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-500 transition hover:bg-slate-50 hover:text-slate-900 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white"
+              aria-label={`${title} 창 닫기`}
             >
               닫기
             </button>
@@ -444,39 +519,39 @@ export function AdminShell({
   const systemItems = NAV_ITEMS.filter((item) => item.group === "system");
 
   return (
-    <div className="min-h-screen bg-[linear-gradient(180deg,#edf3fb_0%,#f6f7f8_46%,#eef3f8_100%)] text-slate-900 dark:bg-[linear-gradient(180deg,#101922_0%,#111b26_55%,#0d141c_100%)] dark:text-slate-100">
+    <div className="min-h-dvh bg-[var(--background)] text-slate-900 dark:text-slate-100">
       <div className="flex min-h-screen">
-        <aside className="hidden w-72 shrink-0 flex-col border-r border-slate-200 bg-slate-50/95 backdrop-blur md:flex dark:border-slate-800 dark:bg-slate-950/70">
-          <div className="p-6">
+        <aside className="hidden w-64 shrink-0 flex-col border-r border-slate-200 bg-white md:flex dark:border-slate-800 dark:bg-slate-950">
+          <div className="p-5">
             <div className="flex items-center gap-3">
-              <div className="grid size-11 place-items-center rounded-xl bg-[#2b8cee] text-white shadow-[0_18px_34px_rgba(43,140,238,0.3)]">
-                <Icon name="spark" className="size-5" />
+              <div className="grid size-10 place-items-center rounded-xl bg-blue-600 text-base font-black text-white shadow-sm">
+                Q
               </div>
               <div>
                 <p className="text-lg font-bold tracking-tight text-slate-900 dark:text-white">
-                  ZeroQ Admin
+                  ZeroQ 운영
                 </p>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Facility operations console
+                  공간·센서 관리 콘솔
                 </p>
               </div>
             </div>
           </div>
 
           <div className="flex-1 space-y-8 px-4 py-2">
-            <SidebarNav title="Management" items={managementItems} activeKey={activeKey} />
-            <SidebarNav title="System" items={systemItems} activeKey={activeKey} />
+            <SidebarNav title="운영" items={managementItems} activeKey={activeKey} />
+            <SidebarNav title="시스템" items={systemItems} activeKey={activeKey} />
           </div>
 
           <div className="border-t border-slate-200 p-4 dark:border-slate-800">
             <div className="rounded-2xl bg-slate-100/80 p-3 dark:bg-slate-900/80">
               <div className="flex items-center gap-3">
-                <div className="grid size-10 place-items-center rounded-full bg-sky-500/15 text-sm font-bold text-sky-600 dark:text-sky-300">
+                <div className="grid size-10 place-items-center rounded-full bg-blue-500/15 text-sm font-bold text-blue-600 dark:text-blue-300">
                   {(user?.username ?? "AD").slice(0, 2).toUpperCase()}
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-bold text-slate-900 dark:text-white">
-                    {user?.username ?? "Admin User"}
+                    {user?.username ?? "관리자"}
                   </p>
                   <p className="truncate text-[11px] text-slate-500 dark:text-slate-400">
                     {user?.role ?? "MANAGER"}
@@ -485,8 +560,9 @@ export function AdminShell({
                 <button
                   type="button"
                   onClick={onLogout}
-                  className="rounded-lg p-2 text-slate-400 transition hover:bg-white hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-white"
-                  aria-label="logout"
+                  className="grid size-10 place-items-center rounded-lg text-slate-400 transition hover:bg-white hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-white"
+                  aria-label="로그아웃"
+                  title="로그아웃"
                 >
                   <Icon name="logout" />
                 </button>
@@ -496,13 +572,13 @@ export function AdminShell({
         </aside>
 
         <div className="flex min-w-0 flex-1 flex-col">
-          <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/85 px-4 py-4 backdrop-blur md:px-8 dark:border-slate-800 dark:bg-slate-950/55">
+          <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 px-4 py-4 backdrop-blur md:px-8 dark:border-slate-800 dark:bg-slate-950/90">
             <div className="flex items-center justify-between gap-4">
               <div className="min-w-0">
-                <p className="text-[11px] font-bold uppercase tracking-[0.26em] text-slate-400 dark:text-slate-500">
-                  ZeroQ Facility Management
+                <p className="text-xs font-bold text-blue-600 dark:text-blue-300">
+                  ZeroQ 공간 운영
                 </p>
-                <h1 className="mt-2 truncate text-3xl font-black tracking-tight text-slate-900 dark:text-white">
+                <h1 className="mt-1 truncate text-2xl font-black tracking-tight text-slate-950 dark:text-white">
                   {title}
                 </h1>
                 <p className="mt-1 max-w-3xl text-sm text-slate-500 dark:text-slate-400">
@@ -510,22 +586,6 @@ export function AdminShell({
                 </p>
               </div>
 
-              <div className="hidden items-center gap-2 lg:flex">
-                <button
-                  type="button"
-                  className="rounded-xl border border-slate-200 bg-slate-50 p-2 text-slate-500 transition hover:bg-slate-100 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400 dark:hover:bg-slate-800"
-                  aria-label="notifications"
-                >
-                  <Icon name="alert" />
-                </button>
-                <button
-                  type="button"
-                  className="rounded-xl border border-slate-200 bg-slate-50 p-2 text-slate-500 transition hover:bg-slate-100 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400 dark:hover:bg-slate-800"
-                  aria-label="help"
-                >
-                  <Icon name="help" />
-                </button>
-              </div>
             </div>
 
             <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
@@ -536,10 +596,11 @@ export function AdminShell({
                     <Link
                       key={item.key}
                       href={item.href}
+                      aria-current={active ? "page" : undefined}
                       className={cn(
-                        "whitespace-nowrap rounded-full border px-4 py-2 text-[11px] font-bold uppercase tracking-[0.18em]",
+                        "min-h-10 whitespace-nowrap rounded-lg border px-3 py-2 text-sm font-semibold",
                         active
-                          ? "border-sky-200 bg-sky-500/10 text-sky-700 dark:border-sky-500/30 dark:bg-sky-400/12 dark:text-sky-200"
+                          ? "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-500/30 dark:bg-blue-400/10 dark:text-blue-200"
                           : "border-slate-200 bg-white text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400",
                       )}
                     >
@@ -553,7 +614,7 @@ export function AdminShell({
           </header>
 
           <main className="flex-1 px-4 py-6 md:px-8 md:py-8">
-            <div className="mx-auto flex w-full max-w-[1500px] flex-col gap-6">{children}</div>
+            <div className="mx-auto flex w-full max-w-[1440px] flex-col gap-6">{children}</div>
           </main>
         </div>
       </div>

@@ -5,7 +5,11 @@ import type {
   ManagerSignUpRequest,
 } from "@/app/types/auth";
 import type { ApiResult } from "@/app/lib/api";
-import { postJson, ZEROQ_ADMIN_CLIENT_ID } from "@/app/lib/api";
+import {
+  IS_GATEWAY_MODE,
+  postAuthJson,
+  ZEROQ_ADMIN_CLIENT_ID,
+} from "@/app/lib/api";
 import { emitAuthChanged, emitAuthExpired } from "@/app/lib/authEvents";
 
 const TOKEN_EXPIRY_LEEWAY_SECONDS = 300;
@@ -29,6 +33,7 @@ export function getAccessToken(): string | null {
   return accessTokenMemory;
 }
 
+/** 관리자 access token을 현재 탭 메모리에만 저장하고 인증 구독자에게 알린다. */
 export function setAccessToken(token: string): void {
   accessTokenMemory = token;
   explicitlySignedOut = false;
@@ -58,6 +63,23 @@ export function isManagerOrAdmin(role?: string | null): boolean {
   return normalized === "MANAGER" || normalized === "ADMIN";
 }
 
+/**
+ * Gateway 모드에는 Bearer token만 보내고, 로컬 직결 모드에는 gateway가 주입하던
+ * 사용자 식별 헤더를 token claim에서 함께 구성한다.
+ */
+export function buildServiceAuthHeaders(token: string): Record<string, string> {
+  const user = IS_GATEWAY_MODE ? null : getUserFromToken(token);
+
+  return {
+    Authorization: `Bearer ${token}`,
+    ...(user?.username
+      ? { "X-User-Name": encodeURIComponent(user.username) }
+      : {}),
+    ...(user?.userKey ? { "X-User-Key": user.userKey } : {}),
+    ...(user?.role ? { "X-User-Role": user.role } : {}),
+  };
+}
+
 export type AuthExpireReason = "expired" | "refresh_failed";
 
 export function notifyAuthExpired(reason: AuthExpireReason = "expired"): void {
@@ -76,6 +98,7 @@ function decodeBase64Url(input: string): string | null {
   }
 }
 
+/** UI 역할 분기용 JWT claim을 해석하며 서버의 서명 검증을 대신하지 않는다. */
 export function getUserFromToken(token?: string | null): AuthUser | null {
   const rawToken = token ?? getAccessToken();
   if (!rawToken) {
@@ -133,12 +156,14 @@ export function scheduleTokenExpiry(
   return () => window.clearTimeout(timeoutId);
 }
 
+/** zeroq-front-admin client id로 로컬 로그인을 요청한다. */
 export async function login(
   payload: LoginRequest,
 ): Promise<ApiResult<LoginResponse>> {
-  return postJson<LoginResponse>("/auth/login", payload, withClientId());
+  return postAuthJson<LoginResponse>("/auth/login", payload, withClientId());
 }
 
+/** 가입 비밀키와 MANAGER 역할을 명시해 운영자 계정 생성을 요청한다. */
 export async function signUpManager(payload: {
   username: string;
   email: string;
@@ -153,18 +178,19 @@ export async function signUpManager(payload: {
     signupSecret: payload.signupSecret,
   };
 
-  return postJson<{ userKey?: string }>(
+  return postAuthJson<{ userKey?: string }>(
     "/api/users",
     requestBody,
     withClientId(),
   );
 }
 
+/** logout 뒤 진행 중 refresh가 관리자 세션을 되살리지 못하도록 인증 세대를 무효화한다. */
 export async function logout(): Promise<void> {
   explicitlySignedOut = true;
   authGeneration += 1;
   try {
-    await postJson<void>("/auth/logout", {}, withClientId());
+    await postAuthJson<void>("/auth/logout", {}, withClientId());
   } finally {
     accessTokenMemory = null;
     bootstrapRefreshDone = true;
@@ -173,9 +199,10 @@ export async function logout(): Promise<void> {
   }
 }
 
+/** 관리자 client별 HttpOnly refresh cookie로 access token을 복구한다. */
 async function requestRefreshAccessToken(): Promise<string | null> {
   const requestGeneration = authGeneration;
-  const result = await postJson<LoginResponse>(
+  const result = await postAuthJson<LoginResponse>(
     "/auth/refresh",
     {},
     withClientId(),
@@ -190,6 +217,7 @@ async function requestRefreshAccessToken(): Promise<string | null> {
   return result.data.accessToken;
 }
 
+/** 동시 refresh 호출을 하나로 합쳐 token rotation 충돌을 줄인다. */
 export async function refreshAccessToken(): Promise<string | null> {
   if (explicitlySignedOut) {
     return null;
@@ -204,6 +232,7 @@ export async function refreshAccessToken(): Promise<string | null> {
   return refreshInFlight;
 }
 
+/** 메모리 토큰을 우선 사용하고 없을 때 페이지 생명주기당 한 번 cookie 복구를 시도한다. */
 export async function ensureAccessToken(): Promise<string | null> {
   if (accessTokenMemory) {
     return accessTokenMemory;

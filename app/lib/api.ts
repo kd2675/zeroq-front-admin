@@ -1,9 +1,22 @@
 import type { ResponseEnvelope } from "@/app/types/response";
 
+const API_MODE = process.env.NEXT_PUBLIC_API_MODE ?? "direct";
+const DEFAULT_GATEWAY_API_BASE = "http://localhost:8080";
+const DEFAULT_DIRECT_ZEROQ_API_BASE = "http://localhost:20180";
+const DEFAULT_DIRECT_AUTH_API_BASE = "http://localhost:9000";
+
+export const IS_GATEWAY_MODE = API_MODE === "gateway";
+
 export const API_BASE =
-  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
+  process.env.NEXT_PUBLIC_ZEROQ_API_URL ??
+  process.env.NEXT_PUBLIC_API_URL ??
+  (IS_GATEWAY_MODE ? DEFAULT_GATEWAY_API_BASE : DEFAULT_DIRECT_ZEROQ_API_BASE);
 export const ADMIN_API_BASE =
   process.env.NEXT_PUBLIC_ADMIN_API_URL ?? API_BASE;
+export const AUTH_API_BASE =
+  process.env.NEXT_PUBLIC_AUTH_API_URL ??
+  process.env.NEXT_PUBLIC_API_URL ??
+  (IS_GATEWAY_MODE ? DEFAULT_GATEWAY_API_BASE : DEFAULT_DIRECT_AUTH_API_BASE);
 export const ZEROQ_ADMIN_CLIENT_ID =
   process.env.NEXT_PUBLIC_CLIENT_ID ?? "zeroq-front-admin";
 
@@ -47,6 +60,7 @@ function parseResponseBody(text: string): unknown {
   }
 }
 
+/** Gateway 또는 분리된 관리자 API base의 공통 응답 envelope를 ApiResult로 정규화한다. */
 async function requestJson<T>(
   path: string,
   options: RequestOptions = {},
@@ -132,6 +146,20 @@ export function postJson<T>(
   return requestJson<T>(path, { method: "POST", body, headers });
 }
 
+/** 로그인·회원가입·refresh·logout 요청을 분리된 인증 서버로 보낸다. */
+export function postAuthJson<T>(
+  path: string,
+  body: unknown,
+  headers?: Record<string, string>,
+): Promise<ApiResult<T>> {
+  return requestJson<T>(path, {
+    method: "POST",
+    body,
+    headers,
+    baseUrl: AUTH_API_BASE,
+  });
+}
+
 export function getJson<T>(
   path: string,
   headers?: Record<string, string>,
@@ -162,6 +190,7 @@ export function deleteJson<T>(
   return requestJson<T>(path, { method: "DELETE", headers });
 }
 
+/** 관리자 콘솔 read API를 NEXT_PUBLIC_ADMIN_API_URL 기준으로 호출한다. */
 export function getAdminJson<T>(
   path: string,
   headers?: Record<string, string>,
@@ -173,6 +202,7 @@ export function getAdminJson<T>(
   });
 }
 
+/** 관리자 콘솔 설정·원장 갱신 API를 관리자 base URL로 호출한다. */
 export function putAdminJson<T>(
   path: string,
   body: unknown,
@@ -186,6 +216,7 @@ export function putAdminJson<T>(
   });
 }
 
+/** 관리자 공간·게이트웨이 생성 API를 관리자 base URL로 호출한다. */
 export function postAdminJson<T>(
   path: string,
   body: unknown,

@@ -6,10 +6,11 @@ import { useRouter, useSearchParams } from "next/navigation";
 
 import useAuthSession from "@/app/hooks/useAuthSession";
 import { getUserFromToken, isManagerOrAdmin, login, logout, setAccessToken } from "@/app/lib/auth";
-import { API_BASE } from "@/app/lib/api";
+import { AUTH_API_BASE } from "@/app/lib/api";
 import { rememberPendingPath, sanitizeAuthNextPath } from "@/app/lib/authRouting";
 import { initializeProfile } from "@/app/lib/profile";
 
+/** 관리자 로컬 로그인과 권한 연결이 끝난 Naver/Kakao OAuth 진입을 처리한다. */
 function LoginPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -76,7 +77,7 @@ function LoginPageContent() {
 
   const startOAuthLogin = (provider: "naver-zeroq-admin" | "kakao-zeroq-admin") => {
     rememberPendingPath(nextPath);
-    window.location.replace(`${API_BASE}/oauth2/authorize/${provider}`);
+    window.location.replace(`${AUTH_API_BASE}/oauth2/authorize/${provider}`);
   };
 
   if (!isHydrated || authStatus === "unknown" || (authStatus === "in" && !isSubmitting)) {
@@ -84,14 +85,12 @@ function LoginPageContent() {
   }
 
   return (
-    <main className="min-h-screen bg-[#eef1f4] px-5 py-8 text-[#18212b]">
-      <section className="mx-auto grid min-h-[calc(100vh-4rem)] w-full max-w-6xl overflow-hidden rounded-xl border border-[#d8dee5] bg-white shadow-[0_24px_64px_rgba(21,31,43,0.12)] lg:grid-cols-[1fr_440px]">
+    <main className="min-h-screen bg-[var(--background)] px-5 py-8 text-[var(--foreground)]">
+      <section className="mx-auto grid min-h-[calc(100vh-4rem)] w-full max-w-6xl overflow-hidden rounded-2xl border border-[var(--border)] bg-white shadow-[var(--shadow-lg)] lg:grid-cols-[1fr_440px] dark:bg-slate-950">
         <div className="relative flex min-h-[340px] flex-col justify-between overflow-hidden bg-[#18212b] p-8 text-white md:p-12">
-          <div className="absolute -right-16 -top-16 size-64 rounded-full border border-white/10" />
-          <div className="absolute -right-4 top-12 size-40 rounded-full border border-orange-400/25" />
           <div className="relative">
-            <p className="text-xs font-black tracking-[0.24em] text-orange-400">ZEROQ OPERATIONS</p>
-            <h1 className="mt-5 max-w-xl break-keep text-4xl font-black leading-tight tracking-[-0.035em] md:text-5xl">
+            <p className="text-xs font-black tracking-[0.2em] text-blue-300">ZEROQ OPERATIONS</p>
+            <h1 className="mt-5 max-w-xl break-keep text-4xl font-black leading-tight tracking-[-0.035em]">
               공간 운영의 현재를
               <br />한 화면에서 통제합니다
             </h1>
@@ -100,18 +99,18 @@ function LoginPageContent() {
               인증 후 요청했던 운영 화면으로 안전하게 돌아갑니다.
             </p>
           </div>
-          <div className="relative mt-10 grid gap-3 text-sm sm:grid-cols-3">
-            <AdminMetric value="MANAGER" label="매장 운영" />
-            <AdminMetric value="ADMIN" label="전체 관리" />
-            <AdminMetric value="RETURN" label="경로 복귀" />
-          </div>
+          <ul className="relative mt-10 grid gap-3 text-sm text-slate-300">
+            <li className="border-l-2 border-blue-400 pl-3">실제 센서·게이트웨이 상태와 최근 이벤트 확인</li>
+            <li className="border-l-2 border-blue-400 pl-3">MANAGER·ADMIN 권한과 관리자 프로필 검증</li>
+            <li className="border-l-2 border-blue-400 pl-3">로그인 후 요청했던 내부 운영 화면으로 복귀</li>
+          </ul>
         </div>
 
         <div className="flex items-center p-6 md:p-9">
-          <form onSubmit={handleSubmit} className="w-full">
-            <p className="text-xs font-black tracking-[0.2em] text-orange-600">AUTHORIZED ACCESS</p>
+          <form onSubmit={handleSubmit} className="w-full" aria-busy={isSubmitting}>
+            <p className="text-xs font-black tracking-[0.2em] text-blue-700 dark:text-blue-300">AUTHORIZED ACCESS</p>
             <h2 className="mt-3 text-2xl font-black tracking-[-0.025em]">관리자 로그인</h2>
-            <p className="mt-2 text-sm leading-6 text-slate-600">MANAGER 또는 ADMIN 권한이 있는 계정만 접근할 수 있습니다.</p>
+            <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">MANAGER 또는 ADMIN 권한이 있는 계정만 접근할 수 있습니다.</p>
 
             <div className="mt-6 space-y-3">
               <AdminField label="아이디" name="username" value={username} onChange={setUsername} autoComplete="username" />
@@ -122,7 +121,7 @@ function LoginPageContent() {
               <p className="mt-4 rounded-lg bg-emerald-50 px-3 py-2.5 text-sm font-semibold text-emerald-700">회원가입이 완료되었습니다. 로그인해 주세요.</p>
             ) : null}
             {message || queryMessage ? (
-              <p role="alert" aria-live="polite" className="mt-4 rounded-lg bg-red-50 px-3 py-2.5 text-sm font-semibold text-red-700">
+              <p role="alert" aria-live="polite" className="mt-4 rounded-lg bg-rose-50 px-3 py-2.5 text-sm font-semibold text-rose-700">
                 {message ?? queryMessage}
               </p>
             ) : null}
@@ -130,7 +129,7 @@ function LoginPageContent() {
             <button
               type="submit"
               disabled={isSubmitting}
-              className="mt-5 min-h-12 w-full rounded-lg bg-orange-600 px-4 py-3 text-sm font-black text-white hover:bg-orange-700 disabled:cursor-wait disabled:opacity-60"
+              className="mt-5 min-h-12 w-full rounded-lg bg-blue-600 px-4 py-3 text-sm font-black text-white hover:bg-blue-700 disabled:cursor-wait disabled:opacity-60"
             >
               {isSubmitting ? "확인 중" : "운영 콘솔 로그인"}
             </button>
@@ -142,27 +141,18 @@ function LoginPageContent() {
             </div>
 
             <div className="grid grid-cols-2 gap-2">
-              <button type="button" onClick={() => startOAuthLogin("naver-zeroq-admin")} className="min-h-11 rounded-lg bg-[#03c75a] px-3 py-2 text-sm font-black text-white hover:brightness-95">네이버</button>
-              <button type="button" onClick={() => startOAuthLogin("kakao-zeroq-admin")} className="min-h-11 rounded-lg bg-[#fee500] px-3 py-2 text-sm font-black text-[#191919] hover:brightness-95">카카오</button>
+              <button type="button" disabled={isSubmitting} onClick={() => startOAuthLogin("naver-zeroq-admin")} className="min-h-11 rounded-lg bg-[#03c75a] px-3 py-2 text-sm font-black text-white hover:brightness-95 disabled:cursor-wait disabled:opacity-60">네이버</button>
+              <button type="button" disabled={isSubmitting} onClick={() => startOAuthLogin("kakao-zeroq-admin")} className="min-h-11 rounded-lg bg-[#fee500] px-3 py-2 text-sm font-black text-[#191919] hover:brightness-95 disabled:cursor-wait disabled:opacity-60">카카오</button>
             </div>
 
-            <p className="mt-5 text-center text-sm text-slate-600">
+            <p className="mt-5 text-center text-sm text-slate-600 dark:text-slate-300">
               계정이 없나요?{" "}
-              <Link href="/signup" className="font-black text-orange-700 hover:underline">MANAGER 회원가입</Link>
+              <Link href="/signup" className="font-black text-blue-700 hover:underline dark:text-blue-300">MANAGER 회원가입</Link>
             </p>
           </form>
         </div>
       </section>
     </main>
-  );
-}
-
-function AdminMetric({ value, label }: { value: string; label: string }) {
-  return (
-    <div className="border-l border-white/20 pl-3">
-      <p className="font-mono text-sm font-black text-orange-300">{value}</p>
-      <p className="mt-1 text-xs text-slate-400">{label}</p>
-    </div>
   );
 }
 
@@ -183,7 +173,7 @@ function AdminField({
 }) {
   return (
     <label className="block">
-      <span className="text-xs font-bold text-slate-600">{label}</span>
+      <span className="text-xs font-bold text-slate-600 dark:text-slate-300">{label}</span>
       <input
         name={name}
         type={type}
@@ -191,7 +181,7 @@ function AdminField({
         onChange={(event) => onChange(event.target.value)}
         autoComplete={autoComplete}
         maxLength={255}
-        className="mt-1 min-h-12 w-full rounded-lg border border-slate-300 px-3 py-3 text-sm font-bold outline-none focus:border-orange-600 focus:ring-2 focus:ring-orange-600/10"
+        className="mt-1 min-h-12 w-full rounded-lg border border-slate-300 px-3 py-3 text-sm font-bold outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-600/10 dark:border-slate-700 dark:bg-slate-900"
       />
     </label>
   );
@@ -199,10 +189,10 @@ function AdminField({
 
 function AdminLoginProgress() {
   return (
-    <main className="grid min-h-screen place-items-center bg-[#eef1f4] px-5" aria-live="polite">
+    <main className="grid min-h-screen place-items-center bg-[var(--background)] px-5" aria-live="polite">
       <section className="text-center">
-        <span className="mx-auto block size-8 animate-spin rounded-full border-2 border-slate-300 border-t-orange-600" aria-hidden="true" />
-        <p className="mt-4 text-sm font-bold text-slate-600">관리자 권한과 세션을 확인하고 있습니다.</p>
+        <span className="mx-auto block size-8 animate-spin rounded-full border-2 border-slate-300 border-t-blue-600" aria-hidden="true" />
+        <p className="mt-4 text-sm font-bold text-slate-600 dark:text-slate-300">관리자 권한과 세션을 확인하고 있습니다.</p>
       </section>
     </main>
   );
@@ -239,9 +229,10 @@ function resolveQueryMessage(searchParams: URLSearchParams): string | null {
   }
 }
 
+/** `/login` route. 세션 복구와 query 기반 인증 오류를 Suspense 경계 안에서 처리한다. */
 export default function LoginPage() {
   return (
-    <Suspense fallback={<main className="min-h-screen bg-[#eef1f4]" />}>
+    <Suspense fallback={<main className="min-h-screen bg-[var(--background)]" />}>
       <LoginPageContent />
     </Suspense>
   );

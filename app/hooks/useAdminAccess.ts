@@ -4,6 +4,7 @@ import { useCallback, useEffect } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import useAuthSession from "@/app/hooks/useAuthSession";
 import {
+  buildServiceAuthHeaders,
   ensureAccessToken,
   isManagerOrAdmin,
   logout,
@@ -44,9 +45,7 @@ export default function useAdminAccess() {
       return null;
     }
 
-    return {
-      Authorization: `Bearer ${token}`,
-    };
+    return buildServiceAuthHeaders(token);
   }, [pathname, router, search]);
 
   const signOut = useCallback(async () => {
